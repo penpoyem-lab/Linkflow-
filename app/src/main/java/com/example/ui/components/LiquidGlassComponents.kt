@@ -62,6 +62,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -496,10 +498,15 @@ fun AmbientMidnightBackground(
     }
 }
 
+/**
+ * Custom composable container using background blur (`Modifier.blur`), multi-stop translucent
+ * gradients, specular rim lighting, and caustic refraction to achieve a 'liquid-glass' UI aesthetic.
+ */
 @Composable
-fun LiquidGlassCard(
+fun LiquidGlassContainer(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 24.dp,
+    blurRadius: Dp = 22.dp,
     isHighlighted: Boolean = false,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
@@ -515,7 +522,7 @@ fun LiquidGlassCard(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
         ),
-        label = "card_press_scale"
+        label = "glass_container_press_scale"
     )
 
     val infiniteTransition = rememberInfiniteTransition(label = "card_refraction")
@@ -545,6 +552,18 @@ fun LiquidGlassCard(
         tokens.glassBorderGradient
     }
 
+    val translucentGradientBrush = if (isHighlighted) {
+        Brush.verticalGradient(
+            listOf(
+                tokens.glassSurfaceElevated,
+                tokens.glassSurface,
+                if (tokens.isDark) Color(0x360C142C) else Color(0xCCF1F5F9)
+            )
+        )
+    } else {
+        tokens.cardBackgroundGradient
+    }
+
     val baseModifier = modifier
         .graphicsLayer {
             scaleX = pressScale
@@ -557,19 +576,6 @@ fun LiquidGlassCard(
             spotColor = tokens.accentCyan.copy(alpha = if (isHighlighted) 0.50f else 0.32f)
         )
         .clip(shape)
-        .background(
-            brush = if (isHighlighted) {
-                Brush.verticalGradient(
-                    listOf(
-                        tokens.glassSurfaceElevated,
-                        tokens.glassSurface,
-                        if (tokens.isDark) Color(0x360C142C) else Color(0xCCF1F5F9)
-                    )
-                )
-            } else {
-                tokens.cardBackgroundGradient
-            }
-        )
         .border(
             width = if (isHighlighted) 1.5.dp else 1.1.dp,
             brush = borderBrush,
@@ -590,6 +596,17 @@ fun LiquidGlassCard(
     Box(
         modifier = clickableModifier
     ) {
+        // Frosted background blur & translucent gradient backdrop layer
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .blur(
+                    radius = blurRadius,
+                    edgeTreatment = BlurredEdgeTreatment.Unbounded
+                )
+                .background(brush = translucentGradientBrush)
+        )
+
         // Multi-layered Liquid-Glass Specular Crown & Diagonal Caustic Sheen
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = size.width
@@ -643,6 +660,24 @@ fun LiquidGlassCard(
         }
         content()
     }
+}
+
+@Composable
+fun LiquidGlassCard(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 24.dp,
+    isHighlighted: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    content: @Composable BoxScope.() -> Unit
+) {
+    LiquidGlassContainer(
+        modifier = modifier,
+        cornerRadius = cornerRadius,
+        blurRadius = 22.dp,
+        isHighlighted = isHighlighted,
+        onClick = onClick,
+        content = content
+    )
 }
 
 /**

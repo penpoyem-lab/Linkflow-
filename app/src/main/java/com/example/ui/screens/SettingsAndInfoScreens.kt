@@ -24,8 +24,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -53,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -98,6 +101,7 @@ fun SettingsScreen(
     onShowPrivacyTerms: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
+    val uriHandler = LocalUriHandler.current
     var showBrandDialog by remember { mutableStateOf(false) }
     var brandInput by remember(preferences.appBrandName) { mutableStateOf(preferences.appBrandName) }
     var showRepoDialog by remember { mutableStateOf(false) }
@@ -550,6 +554,45 @@ fun SettingsScreen(
                     )
                 }
             }
+            }
+        }
+
+        // 6. Download Latest APK Section (Last section of Settings page)
+        item {
+            StaggeredAnimatedEntrance(index = 6, reducedMotion = preferences.reducedMotion) {
+                LiquidGlassCard(cornerRadius = 24.dp, modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SectionHeaderRow(
+                            icon = Icons.Default.CloudDownload,
+                            title = "Latest Official Release"
+                        )
+                        Text(
+                            text = "Get the newest version of ${preferences.appBrandName} directly from the official GitHub Releases page.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        val latestReleaseUrl = otaState.releaseInfo?.htmlUrl?.takeIf { it.isNotBlank() }
+                            ?: "https://github.com/${preferences.githubRepoSlug}/releases/latest"
+                        LiquidGlassPrimaryButton(
+                            text = "Download Latest APK",
+                            icon = Icons.Default.OpenInNew,
+                            onClick = {
+                                runCatching {
+                                    uriHandler.openUri(latestReleaseUrl)
+                                }
+                            },
+                            cornerRadius = 16.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("download_latest_apk_button")
+                        )
+                    }
+                }
             }
         }
     }
