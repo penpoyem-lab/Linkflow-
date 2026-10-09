@@ -191,15 +191,18 @@ fun Modifier.springBounceClickable(
 
 /**
  * Material 3 Expressive Wavy-Squiggle Arc & Smooth Circular Track Loader
- * on a completely transparent background (matching the user's uploaded reference images).
+ * on a completely transparent background (matching the user's uploaded reference video).
  *
- * Features:
- * - Two opposing open ring segments separated by clean gaps (~19° on each side)
- * - Active segment: Thick rounded sinusoidal wavy squiggle arc (~156° span) with 4 smooth outward crests
- *   that ripple organically along the arc while the whole indicator rotates
- * - Opposite segment: Smooth circular track arc (~166° span) with flat/butt caps in a complementary
- *   translucent tone
- * - Pure transparent background (no opaque circle plate, shadow, or surface behind it)
+ * Features from the reference video:
+ * - Indeterminate sweep expansion & contraction: the wavy squiggle arc smoothly expands from a
+ *   short 1-wave segment (~26° sweep) to a full 8-wave segment (~272° sweep) and contracts back,
+ *   while the opposite smooth circular track arc shrinks and grows inversely so both segments
+ *   stay separated by clean ~19° gaps on both ends!
+ * - Constant angular wave frequency (~33.5° per wave crest) so as the arc grows longer, additional
+ *   smooth sinusoidal crests appear naturally instead of stretching existing waves.
+ * - Active wavy squiggle uses rounded stroke caps (`StrokeCap.Round`), while the opposite smooth
+ *   circular track uses flat/butt stroke caps (`StrokeCap.Butt`).
+ * - Pure transparent background (no circle plate, card, or shadow behind it).
  */
 @Composable
 fun PlayStoreScallopedLoader(
@@ -212,63 +215,88 @@ fun PlayStoreScallopedLoader(
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "expressive_wavy_arc_loader")
-    val rotationDeg by infiniteTransition.animateFloat(
+
+    // Continuous base rotation + indeterminate head/tail advance matching the video
+    val baseRotationDeg by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) 360f else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1500, easing = LinearEasing),
+            animation = tween(durationMillis = 2000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "wavy_arc_rotation"
+        label = "wavy_arc_base_rotation"
     )
 
+    // Cycle progress 0f -> 1f over 2600ms:
+    // 0.0 -> 0.5: Wavy arc expands from ~26° (1 wave crest) to ~272° (8 wave crests)
+    // 0.5 -> 1.0: Wavy arc contracts from ~272° back to ~26° while advancing its tail angle by 246°
+    val morphCycle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isSpinning && !reducedMotion) 1f else 0.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "wavy_arc_morph_cycle"
+    )
+
+    // Subtle organic wave ripple phase along the squiggle
     val wavePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) (2f * PI.toFloat()) else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 820, easing = LinearEasing),
+            animation = tween(durationMillis = 950, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "wavy_arc_travel_phase"
     )
 
-    val sweepBreath by infiniteTransition.animateFloat(
-        initialValue = 150f,
-        targetValue = if (isSpinning && !reducedMotion) 164f else 156f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "wavy_arc_sweep_breath"
-    )
+    val minSweepDeg = 26f
+    val maxSweepDeg = 272f
+    val sweepDelta = maxSweepDeg - minSweepDeg
+
+    val (dynamicStartOffsetDeg, wavySweepDeg) = if (isSpinning && !reducedMotion) {
+        if (morphCycle < 0.5f) {
+            val f = FastOutSlowInEasing.transform(morphCycle * 2f)
+            val sweep = minSweepDeg + (sweepDelta * f)
+            0f to sweep
+        } else {
+            val f = FastOutSlowInEasing.transform((morphCycle - 0.5f) * 2f)
+            val sweep = maxSweepDeg - (sweepDelta * f)
+            val tailAdvance = sweepDelta * f
+            tailAdvance to sweep
+        }
+    } else if (isSpinning) {
+        0f to 160f
+    } else {
+        // Pull-to-refresh drag mode: sweep grows from 26° to 240° as the user pulls down
+        val pullClamped = pullFraction.coerceIn(0.08f, 1.15f)
+        0f to (minSweepDeg + (pullClamped / 1.15f) * 220f)
+    }
 
     val effectiveRotation = if (isSpinning) {
-        rotationDeg
+        (baseRotationDeg + dynamicStartOffsetDeg) % 360f
     } else {
-        pullFraction * 270f
+        (pullFraction * 240f) - 90f
     }
 
     val effectiveScale = if (isSpinning) {
         1f
     } else {
-        pullFraction.coerceIn(0.32f, 1.04f)
+        pullFraction.coerceIn(0.35f, 1.04f)
     }
 
-    val wavySweepDeg = if (isSpinning) {
-        sweepBreath
-    } else {
-        (pullFraction.coerceIn(0.18f, 1f) * 156f)
-    }
-
+    // Two clean gaps separating the wavy arc and the smooth circular track arc
     val gapDeg = 19f
     val trackStartDeg = wavySweepDeg + gapDeg
-    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(38f)
+    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(18f)
 
     val wavyPath = remember { Path() }
 
     Canvas(
         modifier = modifier
             .size(size)
+            .background(Color.Transparent)
             .graphicsLayer {
                 scaleX = effectiveScale
                 scaleY = effectiveScale
@@ -277,13 +305,13 @@ fun PlayStoreScallopedLoader(
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
         val minDim = this.size.minDimension
-        val strokePx = minDim * 0.122f
-        val waveAmplitudePx = minDim * 0.048f
+        val strokePx = minDim * 0.118f
+        val waveAmplitudePx = minDim * 0.046f
         val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx
 
         rotate(degrees = effectiveRotation, pivot = Offset(cx, cy)) {
-            // 1. Draw the opposite smooth circular track arc segment with clean flat/butt caps
-            if (trackSweepDeg > 5f) {
+            // 1. Draw the opposite smooth circular track arc segment with flat/butt caps
+            if (trackSweepDeg > 4f) {
                 drawArc(
                     color = trackColor,
                     startAngle = trackStartDeg,
@@ -299,8 +327,10 @@ fun PlayStoreScallopedLoader(
             }
 
             // 2. Draw the sinusoidal wavy squiggle active arc segment (0..wavySweepDeg)
-            val steps = 108
-            val numWaveCycles = 4.0f // 4 prominent rounded crests matching the reference images
+            // Keep angular wavelength constant (~33.5° per full wave cycle) so expanding from
+            // 26° to 272° smoothly reveals 1 -> 8 rounded wave crests just like the reference video
+            val degreesPerWave = 33.5f
+            val steps = (wavySweepDeg * 0.85f).roundToInt().coerceIn(32, 180)
             wavyPath.reset()
 
             for (i in 0..steps) {
@@ -308,10 +338,13 @@ fun PlayStoreScallopedLoader(
                 val angleDeg = fraction * wavySweepDeg
                 val angleRad = Math.toRadians(angleDeg.toDouble())
 
-                // Smoothly taper wave amplitude near the two endpoints so the flat caps align with the track radius
-                val edgeEnvelope = sin(fraction * PI).toFloat().coerceIn(0.15f, 1f)
+                // Taper wave amplitude gently at the very tips so the rounded caps sit cleanly on the ring
+                val tipAngleDist = minOf(angleDeg, wavySweepDeg - angleDeg)
+                val edgeEnvelope = (tipAngleDist / 12f).coerceIn(0.22f, 1f)
+
+                val waveCyclesAtAngle = angleDeg / degreesPerWave
                 val waveOffset = waveAmplitudePx * edgeEnvelope *
-                    sin((fraction * numWaveCycles * 2.0 * PI) + wavePhase).toFloat()
+                    sin((waveCyclesAtAngle * 2.0 * PI) - wavePhase).toFloat()
 
                 val r = baseRadius + waveOffset
                 val x = cx + r * cos(angleRad).toFloat()
@@ -329,7 +362,7 @@ fun PlayStoreScallopedLoader(
                 color = color,
                 style = Stroke(
                     width = strokePx,
-                    cap = StrokeCap.Butt,
+                    cap = StrokeCap.Round,
                     join = StrokeJoin.Round
                 )
             )

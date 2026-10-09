@@ -2,6 +2,10 @@ package com.example.data.service
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat as AndroidMediaFormat
+import android.media.MediaMuxer
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -26,6 +30,7 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URI
+import java.nio.ByteBuffer
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -89,6 +94,7 @@ class DownloadQueueManager(
             mediaId = analysis.mediaId,
             sourceUrl = analysis.normalizedUrl,
             targetDownloadUrl = option.downloadUrl,
+            companionAudioUrl = option.companionAudioUrl,
             title = analysis.title,
             providerName = analysis.providerName,
             format = option.format.name,
@@ -265,6 +271,50 @@ class DownloadQueueManager(
                 }
 
                 if (!isActive || pausedFlags[jobId] == true) return@launch
+
+                // If this high-resolution video option (e.g. 4K / 2K / 1080p60 / Reddit DASH) has a separate companion audio track,
+                // download the companion audio stream and hardware-mux Video + Audio into a single playable MP4 container!
+                val companionAudio = task.companionAudioUrl
+                if (!companionAudio.isNullOrBlank() &&
+                    companionAudio.startsWith("http") &&
+                    companionAudio != task.targetDownloadUrl &&
+                    task.format.equals(MediaFormat.MP4.name, ignoreCase = true)
+                ) {
+                    val processingTask = (dao.getDownloadById(jobId) ?: task).copy(
+                        state = DownloadJobState.PROCESSING.name,
+                        progressPercent = 96,
+                        speedBytesPerSec = 0L,
+                        etaSeconds = 1L,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    dao.upsertDownload(processingTask)
+
+                    val tempAudioFile = File(getDownloadsDirectory(), "${task.jobId}_companion_audio.m4a")
+                    val tempMuxedFile = File(getDownloadsDirectory(), "${task.jobId}_muxed_output.mp4")
+                    try {
+                        downloadRawStreamToFile(
+                            targetUrl = companionAudio,
+                            sourceUrl = task.sourceUrl,
+                            outputFile = tempAudioFile
+                        )
+                        if (tempAudioFile.exists() && tempAudioFile.length() > 512L && !isHtmlErrorPageFile(tempAudioFile)) {
+                            val muxOk = muxVideoAndAudioToMp4(
+                                videoFile = destinationFile,
+                                audioFile = tempAudioFile,
+                                outputFile = tempMuxedFile
+                            )
+                            if (muxOk && tempMuxedFile.exists() && tempMuxedFile.length() > destinationFile.length()) {
+                                destinationFile.delete()
+                                tempMuxedFile.renameTo(destinationFile)
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Keep downloaded video stream if companion audio muxing is unsupported for this codec
+                    } finally {
+                        runCatching { tempAudioFile.delete() }
+                        runCatching { if (tempMuxedFile.exists()) tempMuxedFile.delete() }
+                    }
+                }
 
                 val latestBeforeProcess = dao.getDownloadById(jobId) ?: return@launch
                 val finalSize = destinationFile.length()
@@ -505,6 +555,127 @@ class DownloadQueueManager(
             builder.header("Range", rangeHeader)
         }
         return okHttpClient.newCall(builder.build()).execute()
+    }
+
+    private fun downloadRawStreamToFile(
+        targetUrl: String,
+        sourceUrl: String,
+        outputFile: File
+    ) {
+        val refererOrigin = runCatching {
+            val uri = URI(sourceUrl.ifBlank { targetUrl })
+            "${uri.scheme ?: "https"}://${uri.host ?: ""}/"
+        }.getOrDefault("https://www.google.com/")
+
+        executeStreamRequest(targetUrl = targetUrl, referer = refererOrigin, rangeHeader = null).use { resp ->
+            if (!resp.isSuccessful) return
+            val body = resp.body ?: return
+            body.byteStream().use { input ->
+                FileOutputStream(outputFile, false).use { out ->
+                    input.copyTo(out, bufferSize = 32 * 1024)
+                    out.flush()
+                }
+            }
+        }
+    }
+
+    /**
+     * Uses Android's native hardware [MediaExtractor] and [MediaMuxer] to losslessly combine
+     * a high-resolution adaptive MP4 video stream (e.g. 4K / 1080p60) and an M4A/AAC audio stream
+     * into a single standard MP4 file without re-encoding.
+     */
+    private fun muxVideoAndAudioToMp4(
+        videoFile: File,
+        audioFile: File,
+        outputFile: File
+    ): Boolean {
+        var videoExtractor: MediaExtractor? = null
+        var audioExtractor: MediaExtractor? = null
+        var muxer: MediaMuxer? = null
+        return try {
+            videoExtractor = MediaExtractor().apply { setDataSource(videoFile.absolutePath) }
+            audioExtractor = MediaExtractor().apply { setDataSource(audioFile.absolutePath) }
+
+            var videoTrackIndex = -1
+            var videoFormat: AndroidMediaFormat? = null
+            for (i in 0 until videoExtractor.trackCount) {
+                val fmt = videoExtractor.getTrackFormat(i)
+                val mime = fmt.getString(AndroidMediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("video/")) {
+                    videoExtractor.selectTrack(i)
+                    videoTrackIndex = i
+                    videoFormat = fmt
+                    break
+                }
+            }
+
+            var audioTrackIndex = -1
+            var audioFormat: AndroidMediaFormat? = null
+            for (i in 0 until audioExtractor.trackCount) {
+                val fmt = audioExtractor.getTrackFormat(i)
+                val mime = fmt.getString(AndroidMediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("audio/")) {
+                    audioExtractor.selectTrack(i)
+                    audioTrackIndex = i
+                    audioFormat = fmt
+                    break
+                }
+            }
+
+            if (videoTrackIndex < 0 || videoFormat == null || audioTrackIndex < 0 || audioFormat == null) {
+                return false
+            }
+
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val muxVideoTrack = muxer.addTrack(videoFormat)
+            val muxAudioTrack = muxer.addTrack(audioFormat)
+            muxer.start()
+
+            val bufferSize = 1024 * 1024
+            val buffer = ByteBuffer.allocate(bufferSize)
+            val bufferInfo = MediaCodec.BufferInfo()
+
+            // Copy all video samples
+            while (true) {
+                bufferInfo.offset = 0
+                bufferInfo.size = videoExtractor.readSampleData(buffer, 0)
+                if (bufferInfo.size < 0) break
+                bufferInfo.presentationTimeUs = videoExtractor.sampleTime
+                val sampleFlags = videoExtractor.sampleFlags
+                bufferInfo.flags = if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                } else {
+                    0
+                }
+                muxer.writeSampleData(muxVideoTrack, buffer, bufferInfo)
+                videoExtractor.advance()
+            }
+
+            // Copy all audio samples
+            while (true) {
+                bufferInfo.offset = 0
+                bufferInfo.size = audioExtractor.readSampleData(buffer, 0)
+                if (bufferInfo.size < 0) break
+                bufferInfo.presentationTimeUs = audioExtractor.sampleTime
+                val sampleFlags = audioExtractor.sampleFlags
+                bufferInfo.flags = if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                } else {
+                    0
+                }
+                muxer.writeSampleData(muxAudioTrack, buffer, bufferInfo)
+                audioExtractor.advance()
+            }
+
+            muxer.stop()
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { videoExtractor?.release() }
+            runCatching { audioExtractor?.release() }
+            runCatching { muxer?.release() }
+        }
     }
 
     private suspend fun downloadHlsM3u8StreamToFile(

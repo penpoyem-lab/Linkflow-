@@ -9,6 +9,7 @@ data class DownloadTaskEntity(
     val mediaId: String,
     val sourceUrl: String,
     val targetDownloadUrl: String,
+    val companionAudioUrl: String? = null,
     val title: String,
     val providerName: String,
     val format: String, // "MP4" or "MP3"

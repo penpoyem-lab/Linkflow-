@@ -26,6 +26,7 @@ data class QualityOption(
     val resolutionOrBitrate: String,
     val estimatedSizeBytes: Long, // -1L if unknown from HTTP HEAD
     val downloadUrl: String,
+    val companionAudioUrl: String? = null,
     val codec: String,
     val includesAudio: Boolean = true,
     val isAvailable: Boolean = true,

@@ -472,6 +472,13 @@ private fun DownloadQueueItemCard(
                             isSpinning = true,
                             reducedMotion = reducedMotion
                         )
+                    } else if (!task.thumbnailUrl.isNullOrBlank()) {
+                        coil.compose.AsyncImage(
+                            model = task.thumbnailUrl,
+                            contentDescription = task.title,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     } else {
                         Icon(
                             imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,

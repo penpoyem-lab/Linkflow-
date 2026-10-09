@@ -51,7 +51,7 @@ interface LinkFlowDao {
 
 @Database(
     entities = [DownloadTaskEntity::class, RecentAnalysisEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LinkFlowDatabase : RoomDatabase() {

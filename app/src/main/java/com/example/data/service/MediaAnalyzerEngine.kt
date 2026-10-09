@@ -81,6 +81,22 @@ class MediaAnalyzerEngine(
         }
 
         fun buildSecureHttpClient(): OkHttpClient {
+            val cookieStore = java.util.concurrent.ConcurrentHashMap<String, List<okhttp3.Cookie>>()
+            val memoryCookieJar = object : okhttp3.CookieJar {
+                override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                    val existing = cookieStore[url.host].orEmpty().toMutableList()
+                    cookies.forEach { newCookie ->
+                        existing.removeAll { it.name == newCookie.name }
+                        existing.add(newCookie)
+                    }
+                    cookieStore[url.host] = existing
+                }
+
+                override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                    return cookieStore[url.host].orEmpty()
+                }
+            }
+
             val ssrfInterceptor = Interceptor { chain ->
                 val req = chain.request()
                 val reqHost = req.url.host
@@ -90,8 +106,9 @@ class MediaAnalyzerEngine(
                 chain.proceed(req)
             }
             return OkHttpClient.Builder()
-                .connectTimeout(12, TimeUnit.SECONDS)
-                .readTimeout(18, TimeUnit.SECONDS)
+                .cookieJar(memoryCookieJar)
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(22, TimeUnit.SECONDS)
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .addNetworkInterceptor(ssrfInterceptor)
@@ -315,23 +332,10 @@ class MediaAnalyzerEngine(
             if (xOutcome != null) return xOutcome
         }
 
-        // Step E: Reddit Direct JSON + rxddit Extraction
+        // Step E: Reddit Direct JSON + DASH Audio/Video Muxing
         if (host.contains("reddit.com") || host.contains("redd.it")) {
-            val redditMedia = extractRedditDirectStream(resolvedUrl)
-            if (redditMedia != null) {
-                return buildSocialSuccessOutcome(
-                    originalUrl = url,
-                    providerLabel = providerLabel,
-                    title = fetchedTitle ?: redditMedia.first,
-                    author = fetchedAuthor ?: "Reddit Community",
-                    thumbnailUrl = fetchedThumb,
-                    videoStreamUrls = listOf(
-                        "1080p Full HD" to redditMedia.second,
-                        "720p HD" to redditMedia.second
-                    ),
-                    audioStreamUrl = redditMedia.second
-                )
-            }
+            val redditOutcome = extractRedditStreamsWithAudio(url, resolvedUrl, fetchedTitle, fetchedAuthor, fetchedThumb)
+            if (redditOutcome != null) return redditOutcome
         }
 
         // Step F: TikTok Public API (TikWM) + Embed Resolver
@@ -677,6 +681,111 @@ class MediaAnalyzerEngine(
             }
         }
 
+        // Method 4: Instagram Private Mobile API (`i.instagram.com/api/v1/media/<media_id>/info/`) using base64 shortcode -> numeric PK conversion
+        if (discoveredVideos.isEmpty() && !shortcode.isNullOrBlank()) {
+            val mediaPk = instagramShortcodeToMediaPk(shortcode)
+            if (mediaPk != null) {
+                try {
+                    val mobileReq = Request.Builder()
+                        .url("https://i.instagram.com/api/v1/media/$mediaPk/info/")
+                        .header(
+                            "User-Agent",
+                            "Instagram 317.0.0.34.109 Android (34/14; 480dpi; 1080x2400; Google/google; Pixel 8 Pro; husky; husky; en_US; 562248122)"
+                        )
+                        .header("X-IG-App-ID", "936619743392459")
+                        .header("Accept", "*/*")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(mobileReq).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val bodyStr = resp.body?.string().orEmpty()
+                            val item = JSONObject(bodyStr).optJSONArray("items")?.optJSONObject(0)
+                            if (item != null) {
+                                val versions = item.optJSONArray("video_versions")
+                                if (versions != null) {
+                                    for (i in 0 until versions.length()) {
+                                        val vUrl = versions.optJSONObject(i)?.optString("url")
+                                        if (!vUrl.isNullOrBlank() && vUrl.startsWith("http")) {
+                                            discoveredVideos.add(vUrl)
+                                        }
+                                    }
+                                }
+                                // Check carousel media if post has multiple slides
+                                val carousel = item.optJSONArray("carousel_media")
+                                if (carousel != null) {
+                                    for (cIdx in 0 until carousel.length()) {
+                                        val cVersions = carousel.optJSONObject(cIdx)?.optJSONArray("video_versions") ?: continue
+                                        for (vIdx in 0 until cVersions.length()) {
+                                            val vUrl = cVersions.optJSONObject(vIdx)?.optString("url")
+                                            if (!vUrl.isNullOrBlank() && vUrl.startsWith("http")) {
+                                                discoveredVideos.add(vUrl)
+                                            }
+                                        }
+                                    }
+                                }
+                                if (captionTitle.isNullOrBlank()) {
+                                    captionTitle = item.optJSONObject("caption")?.optString("text")?.take(90)
+                                }
+                                if (creatorHandle.isNullOrBlank()) {
+                                    val uname = item.optJSONObject("user")?.optString("username")
+                                    if (!uname.isNullOrBlank()) creatorHandle = "@$uname"
+                                }
+                                if (thumbUrl.isNullOrBlank()) {
+                                    thumbUrl = item.optJSONObject("image_versions2")
+                                        ?.optJSONArray("candidates")
+                                        ?.optJSONObject(0)
+                                        ?.optString("url")
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Continue
+                }
+            }
+        }
+
+        // Method 5: Direct Instagram Reel page fetch with Googlebot / FacebookExternalHit / Mobile Safari User-Agent
+        if (discoveredVideos.isEmpty() && !shortcode.isNullOrBlank()) {
+            val directPageUrls = listOf(
+                "https://www.instagram.com/reel/$shortcode/?__a=1&__d=dis",
+                "https://www.instagram.com/p/$shortcode/"
+            )
+            for (pageUrl in directPageUrls) {
+                if (discoveredVideos.isNotEmpty()) break
+                try {
+                    val req = Request.Builder()
+                        .url(pageUrl)
+                        .header(
+                            "User-Agent",
+                            "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)"
+                        )
+                        .header("Accept", "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val html = resp.body?.string().orEmpty()
+                            val ogVideo = Regex(
+                                """<meta[^>]+property=["']og:video(?::url|:secure_url)?["'][^>]+content=["']([^"']+)["']""",
+                                RegexOption.IGNORE_CASE
+                            ).find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+                            if (!ogVideo.isNullOrBlank() && ogVideo.startsWith("http")) {
+                                discoveredVideos.add(ogVideo)
+                            }
+                            Regex("""\\?["']video_url\\?["']\s*:\s*\\?["']([^"']+)\\?["']""")
+                                .findAll(html)
+                                .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                                .filter { it.startsWith("http") }
+                                .forEach { discoveredVideos.add(it) }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Continue
+                }
+            }
+        }
+
         val uniqueVideos = discoveredVideos.distinct()
         if (uniqueVideos.isNotEmpty()) {
             val primaryStream = uniqueVideos.first()
@@ -701,6 +810,22 @@ class MediaAnalyzerEngine(
         }
 
         return null
+    }
+
+    private fun instagramShortcodeToMediaPk(shortcode: String): String? {
+        val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        return try {
+            var mediaId = java.math.BigInteger.ZERO
+            val base64 = java.math.BigInteger.valueOf(64L)
+            for (ch in shortcode.take(11)) {
+                val idx = alphabet.indexOf(ch)
+                if (idx < 0) return null
+                mediaId = mediaId.multiply(base64).add(java.math.BigInteger.valueOf(idx.toLong()))
+            }
+            mediaId.toString()
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -952,17 +1077,25 @@ class MediaAnalyzerEngine(
             ),
             InnertubeProfile(
                 clientName = "IOS",
-                clientVersion = "19.29.1",
-                userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+                clientVersion = "19.45.4",
+                userAgent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
                 osName = "iOS",
-                osVersion = "17.5.1.21F90",
+                osVersion = "18.1.0.22B83",
                 deviceMake = "Apple",
                 deviceModel = "iPhone16,2"
             ),
             InnertubeProfile(
+                clientName = "ANDROID_TESTSUITE",
+                clientVersion = "1.9",
+                userAgent = "com.google.android.youtube/1.9 (Linux; U; Android 14; en_US) gzip",
+                osName = "Android",
+                osVersion = "14",
+                androidSdkVersion = 34
+            ),
+            InnertubeProfile(
                 clientName = "ANDROID",
-                clientVersion = "19.30.36",
-                userAgent = "com.google.android.youtube/19.30.36 (Linux; U; Android 14; en_US) gzip",
+                clientVersion = "19.44.38",
+                userAgent = "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip",
                 osName = "Android",
                 osVersion = "14",
                 androidSdkVersion = 34
@@ -996,6 +1129,7 @@ class MediaAnalyzerEngine(
                     .header("X-YouTube-Client-Name", when (profile.clientName) {
                         "IOS" -> "5"
                         "ANDROID_VR" -> "28"
+                        "ANDROID_TESTSUITE" -> "30"
                         else -> "3"
                     })
                     .header("X-YouTube-Client-Version", profile.clientVersion)
@@ -1017,7 +1151,7 @@ class MediaAnalyzerEngine(
                     val author = videoDetails?.optString("author")?.takeIf { it.isNotBlank() }
                         ?: fallbackAuthor ?: "YouTube Creator"
                     val durationSec = videoDetails?.optString("lengthSeconds")?.toIntOrNull() ?: 0
-                    val thumb = fallbackThumb ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                    val thumb = fallbackThumb ?: "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg"
 
                     val streamingData = root.optJSONObject("streamingData") ?: return@use
                     val muxedFormats = streamingData.optJSONArray("formats") ?: JSONArray()
@@ -1026,17 +1160,51 @@ class MediaAnalyzerEngine(
                     val videoOptions = mutableListOf<QualityOption>()
                     val audioOptions = mutableListOf<QualityOption>()
 
-                    // 1. Combined Video + Audio MP4 streams (formats)
+                    // First pass on adaptiveFormats: discover the best MP4/M4A audio stream for VidMate-style HD/4K muxing
+                    var bestM4aAudioUrl: String? = null
+                    var bestM4aAudioSize = 0L
+                    var bestAudioBitrate = 0
+
+                    for (i in 0 until adaptiveFormats.length()) {
+                        val fmt = adaptiveFormats.optJSONObject(i) ?: continue
+                        val url = fmt.optString("url").takeIf { it.startsWith("http") } ?: continue
+                        val mimeType = fmt.optString("mimeType", "")
+                        if (mimeType.startsWith("audio/")) {
+                            val contentLength = fmt.optString("contentLength").toLongOrNull() ?: -1L
+                            val bitrate = fmt.optInt("bitrate", 128000) / 1000
+                            val isMp4Audio = mimeType.contains("mp4") || mimeType.contains("m4a")
+                            if (isMp4Audio && bitrate >= bestAudioBitrate) {
+                                bestAudioBitrate = bitrate
+                                bestM4aAudioUrl = url
+                                if (contentLength > 0) bestM4aAudioSize = contentLength
+                            } else if (bestM4aAudioUrl == null) {
+                                bestM4aAudioUrl = url
+                                if (contentLength > 0) bestM4aAudioSize = contentLength
+                            }
+                            audioOptions.add(
+                                QualityOption(
+                                    id = "yt_aud_${fmt.optInt("itag", i)}_$bitrate",
+                                    format = MediaFormat.MP3,
+                                    label = "MP3 / Audio ${bitrate}kbps (${if (isMp4Audio) "M4A AAC" else "Opus"})",
+                                    subLabel = "Original YouTube Studio Audio Track",
+                                    badge = if (bitrate >= 128) "HQ" else null,
+                                    resolutionOrBitrate = "$bitrate kbps",
+                                    estimatedSizeBytes = contentLength,
+                                    downloadUrl = url,
+                                    codec = mimeType.substringBefore(';').uppercase()
+                                )
+                            )
+                        }
+                    }
+
+                    // 1. Combined Video + Audio MP4 streams (formats - direct single-file MP4 with audio included)
                     for (i in 0 until muxedFormats.length()) {
                         val fmt = muxedFormats.optJSONObject(i) ?: continue
                         val url = fmt.optString("url").takeIf { it.startsWith("http") } ?: continue
                         val mimeType = fmt.optString("mimeType", "video/mp4")
-                        val qualityLabel = fmt.optString("qualityLabel").ifBlank {
-                            val h = fmt.optInt("height", 360)
-                            "${h}p"
-                        }
+                        val height = fmt.optInt("height", 360)
                         val width = fmt.optInt("width", 0)
-                        val height = fmt.optInt("height", 0)
+                        val qualityLabel = fmt.optString("qualityLabel").ifBlank { "${height}p" }
                         val contentLength = fmt.optString("contentLength").toLongOrNull() ?: -1L
                         val fps = fmt.optInt("fps", 30)
 
@@ -1044,66 +1212,118 @@ class MediaAnalyzerEngine(
                             QualityOption(
                                 id = "yt_mux_${fmt.optInt("itag", i)}_$qualityLabel",
                                 format = MediaFormat.MP4,
-                                label = "$qualityLabel Full MP4 (Video + Audio)",
-                                subLabel = "Direct YouTube Stream • ${if (width > 0) "${width}×${height} • " else ""}${fps}fps",
-                                badge = if (height >= 720) "Recommended" else "Direct MP4",
+                                label = "$qualityLabel MP4 (Fast Direct Video + Audio)",
+                                subLabel = "Direct Multiplexed Stream • ${if (width > 0) "${width}×${height} • " else ""}${fps}fps",
+                                badge = if (height >= 720) "Recommended" else "Direct",
                                 resolutionOrBitrate = if (width > 0) "${width}×${height}" else qualityLabel,
                                 estimatedSizeBytes = contentLength,
                                 downloadUrl = url,
-                                codec = mimeType.substringBefore(';').uppercase()
+                                companionAudioUrl = null,
+                                codec = mimeType.substringBefore(';').uppercase(),
+                                includesAudio = true
                             )
                         )
                     }
 
-                    // 2. Adaptive MP4 Video streams & M4A/WebM Audio streams
+                    // 2. VidMate-grade High-Resolution Adaptive MP4 Video streams (4K 2160p, 2K 1440p, 1080p60, 1080p, 720p60, 720p, 480p)
+                    // Paired with `bestM4aAudioUrl` so DownloadQueueManager hardware-muxes Video + Audio into a single playable MP4!
+                    data class AdaptiveVideoCandidate(
+                        val itag: Int,
+                        val height: Int,
+                        val width: Int,
+                        val fps: Int,
+                        val qualityLabel: String,
+                        val contentLength: Long,
+                        val url: String,
+                        val codec: String
+                    )
+                    val adaptiveCandidates = mutableListOf<AdaptiveVideoCandidate>()
                     for (i in 0 until adaptiveFormats.length()) {
                         val fmt = adaptiveFormats.optJSONObject(i) ?: continue
                         val url = fmt.optString("url").takeIf { it.startsWith("http") } ?: continue
                         val mimeType = fmt.optString("mimeType", "")
-                        val contentLength = fmt.optString("contentLength").toLongOrNull() ?: -1L
-                        val bitrate = fmt.optInt("bitrate", 128000) / 1000
-
-                        if (mimeType.startsWith("audio/")) {
-                            val isMp4Audio = mimeType.contains("mp4") || mimeType.contains("m4a")
-                            audioOptions.add(
-                                QualityOption(
-                                    id = "yt_aud_${fmt.optInt("itag", i)}_$bitrate",
-                                    format = MediaFormat.MP3,
-                                    label = "Audio ${bitrate}kbps (${if (isMp4Audio) "AAC / M4A" else "Opus"})",
-                                    subLabel = "Direct YouTube Master Audio Track",
-                                    badge = if (bitrate >= 128) "Best Audio" else null,
-                                    resolutionOrBitrate = "$bitrate kbps",
-                                    estimatedSizeBytes = contentLength,
-                                    downloadUrl = url,
-                                    codec = mimeType.substringBefore(';').uppercase()
-                                )
-                            )
-                        } else if (mimeType.startsWith("video/mp4") && videoOptions.size < 4) {
-                            val qualityLabel = fmt.optString("qualityLabel").ifBlank { "${fmt.optInt("height", 720)}p" }
+                        if (mimeType.startsWith("video/mp4")) {
                             val height = fmt.optInt("height", 0)
                             val width = fmt.optInt("width", 0)
-                            if (videoOptions.none { it.label.startsWith(qualityLabel) }) {
-                                videoOptions.add(
-                                    QualityOption(
-                                        id = "yt_adap_${fmt.optInt("itag", i)}_$qualityLabel",
-                                        format = MediaFormat.MP4,
-                                        label = "$qualityLabel HD Stream",
-                                        subLabel = "YouTube High-Bitrate Stream",
-                                        badge = if (height >= 1080) "1080p" else null,
-                                        resolutionOrBitrate = if (width > 0) "${width}×${height}" else qualityLabel,
-                                        estimatedSizeBytes = contentLength,
-                                        downloadUrl = url,
-                                        codec = "H.264 / MP4"
+                            val fps = fmt.optInt("fps", 30)
+                            val qLabel = fmt.optString("qualityLabel").ifBlank { "${height}p" }
+                            val cLen = fmt.optString("contentLength").toLongOrNull() ?: -1L
+                            if (height >= 360) {
+                                adaptiveCandidates.add(
+                                    AdaptiveVideoCandidate(
+                                        itag = fmt.optInt("itag", i),
+                                        height = height,
+                                        width = width,
+                                        fps = fps,
+                                        qualityLabel = qLabel,
+                                        contentLength = cLen,
+                                        url = url,
+                                        codec = if (mimeType.contains("av01")) "AV1 / MP4" else "H.264 / MP4"
                                     )
                                 )
                             }
                         }
                     }
 
+                    // Sort highest resolution & framerate first (4K -> 2K -> 1080p60 -> 1080p -> 720p -> 480p -> 360p)
+                    adaptiveCandidates
+                        .sortedWith(compareByDescending<AdaptiveVideoCandidate> { it.height }.thenByDescending { it.fps })
+                        .distinctBy { "${it.height}_${if (it.fps > 30) 60 else 30}" }
+                        .forEach { cand ->
+                            val alreadyHasMuxedSameHeight = videoOptions.any {
+                                it.companionAudioUrl == null && it.label.startsWith("${cand.height}p")
+                            }
+                            if (!alreadyHasMuxedSameHeight) {
+                                val combinedSize = if (cand.contentLength > 0 && bestM4aAudioSize > 0) {
+                                    cand.contentLength + bestM4aAudioSize
+                                } else {
+                                    cand.contentLength
+                                }
+                                val resTag = when {
+                                    cand.height >= 2160 -> "4K"
+                                    cand.height >= 1440 -> "2K"
+                                    cand.height >= 1080 -> "1080p HD"
+                                    cand.height >= 720 -> "HD"
+                                    else -> null
+                                }
+                                val displayLabel = when {
+                                    cand.height >= 2160 -> "4K Ultra HD (${cand.qualityLabel})"
+                                    cand.height >= 1440 -> "2K QHD (${cand.qualityLabel})"
+                                    cand.height >= 1080 -> "${cand.qualityLabel} Full HD"
+                                    cand.height >= 720 -> "${cand.qualityLabel} HD"
+                                    else -> "${cand.qualityLabel} Standard"
+                                }
+                                videoOptions.add(
+                                    QualityOption(
+                                        id = "yt_hq_${cand.itag}_${cand.qualityLabel}",
+                                        format = MediaFormat.MP4,
+                                        label = displayLabel,
+                                        subLabel = "High-Bitrate Video + Audio Mux • ${cand.width}×${cand.height} • ${cand.fps}fps",
+                                        badge = resTag,
+                                        resolutionOrBitrate = "${cand.width}×${cand.height}",
+                                        estimatedSizeBytes = combinedSize,
+                                        downloadUrl = cand.url,
+                                        companionAudioUrl = bestM4aAudioUrl,
+                                        codec = cand.codec,
+                                        includesAudio = true
+                                    )
+                                )
+                            }
+                        }
+
+                    // Sort final videoOptions so highest resolutions (4K / 1080p / 720p) are clearly ordered
+                    val sortedVideoOptions = videoOptions.sortedByDescending { opt ->
+                        val digits = Regex("""(\d{3,4})p""").find(opt.label)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: Regex("""×(\d{3,4})""").find(opt.resolutionOrBitrate)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                            ?: 720
+                        // Prefer 1080p Full HD or 720p Muxed at the very top as Recommended default, with 4K/2K available
+                        if (opt.badge == "Recommended") digits + 5000 else digits
+                    }
+
                     // Check HLS manifest if muxed formats were empty (e.g. iOS client)
                     val hlsManifestUrl = streamingData.optString("hlsManifestUrl").takeIf { it.startsWith("http") }
-                    if (videoOptions.isEmpty() && hlsManifestUrl != null) {
-                        videoOptions.add(
+                    val finalVideoOptions = if (sortedVideoOptions.isEmpty() && hlsManifestUrl != null) {
+                        listOf(
                             QualityOption(
                                 id = "yt_hls_1080",
                                 format = MediaFormat.MP4,
@@ -1116,9 +1336,11 @@ class MediaAnalyzerEngine(
                                 codec = "H.264 / AAC"
                             )
                         )
+                    } else {
+                        sortedVideoOptions
                     }
 
-                    if (audioOptions.isEmpty() && videoOptions.isNotEmpty()) {
+                    if (audioOptions.isEmpty() && finalVideoOptions.isNotEmpty()) {
                         audioOptions.add(
                             QualityOption(
                                 id = "yt_aud_from_mux",
@@ -1127,14 +1349,14 @@ class MediaAnalyzerEngine(
                                 subLabel = "Direct Audio from YouTube Stream",
                                 badge = "HQ",
                                 resolutionOrBitrate = "192 kbps",
-                                estimatedSizeBytes = videoOptions.first().estimatedSizeBytes,
-                                downloadUrl = videoOptions.first().downloadUrl,
+                                estimatedSizeBytes = finalVideoOptions.first().estimatedSizeBytes,
+                                downloadUrl = finalVideoOptions.first().downloadUrl,
                                 codec = "AAC / MP4"
                             )
                         )
                     }
 
-                    if (videoOptions.isNotEmpty() || audioOptions.isNotEmpty()) {
+                    if (finalVideoOptions.isNotEmpty() || audioOptions.isNotEmpty()) {
                         return UrlAnalysisOutcome.Success(
                             MediaAnalysisResult(
                                 mediaId = "yt_$videoId",
@@ -1148,12 +1370,12 @@ class MediaAnalyzerEngine(
                                 providerName = "YouTube",
                                 providerBadgeColorHex = 0xFFEF4444,
                                 thumbnailUrl = thumb,
-                                videoOptions = videoOptions,
+                                videoOptions = finalVideoOptions,
                                 audioOptions = audioOptions.sortedByDescending {
                                     it.resolutionOrBitrate.filter { c -> c.isDigit() }.toIntOrNull() ?: 0
                                 },
                                 isAuthorizedStream = true,
-                                securityNotice = "Verified YouTube Direct Media Stream ($videoId)"
+                                securityNotice = "Verified YouTube High-Resolution Stream ($videoId)"
                             )
                         )
                     }
@@ -1408,13 +1630,19 @@ class MediaAnalyzerEngine(
         }
     }
 
-    private fun extractRedditDirectStream(url: String): Pair<String, String>? {
+    private fun extractRedditStreamsWithAudio(
+        originalUrl: String,
+        resolvedUrl: String,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome? {
         return try {
-            val cleanUrl = url.substringBefore('?').trimEnd('/')
+            val cleanUrl = resolvedUrl.substringBefore('?').trimEnd('/')
             val jsonUrl = "$cleanUrl.json"
             val req = Request.Builder()
                 .url(jsonUrl)
-                .header("User-Agent", "LinkFlow-Android/2.4")
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) LinkFlow/2.4")
                 .get()
                 .build()
             okHttpClient.newCall(req).execute().use { resp ->
@@ -1427,15 +1655,67 @@ class MediaAnalyzerEngine(
                     ?.optJSONObject(0)
                     ?.optJSONObject("data") ?: return null
 
-                val title = postData.optString("title", "Reddit Video")
-                val fallbackUrl = postData.optJSONObject("secure_media")
-                    ?.optJSONObject("reddit_video")
-                    ?.optString("fallback_url")
-                    ?.substringBefore('?')
-                    ?.takeIf { it.startsWith("http") }
+                val title = fallbackTitle ?: postData.optString("title", "Reddit Video")
+                val author = fallbackAuthor ?: "u/${postData.optString("author", "reddit")}"
+                val redditVideo = postData.optJSONObject("secure_media")?.optJSONObject("reddit_video")
+                    ?: postData.optJSONArray("crosspost_parent_list")?.optJSONObject(0)
+                        ?.optJSONObject("secure_media")?.optJSONObject("reddit_video")
                     ?: return null
 
-                title to fallbackUrl
+                val fallbackVideoUrl = redditVideo.optString("fallback_url")
+                    .substringBefore('?')
+                    .takeIf { it.startsWith("http") }
+                    ?: return null
+
+                val baseDashPrefix = fallbackVideoUrl.substringBeforeLast('/')
+                val companionAudioCandidate = "$baseDashPrefix/DASH_AUDIO_128.mp4"
+
+                val vOpts = listOf(
+                    QualityOption(
+                        id = "reddit_1080_mux",
+                        format = MediaFormat.MP4,
+                        label = "1080p Full HD (Video + Audio)",
+                        subLabel = "Reddit Direct DASH Stream + Audio Mux",
+                        badge = "Recommended",
+                        resolutionOrBitrate = "1080p HD",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = fallbackVideoUrl,
+                        companionAudioUrl = companionAudioCandidate,
+                        codec = "H.264 / AAC"
+                    )
+                )
+                val aOpts = listOf(
+                    QualityOption(
+                        id = "reddit_audio_128",
+                        format = MediaFormat.MP3,
+                        label = "MP3 / Audio 128kbps",
+                        subLabel = "Reddit Audio Track",
+                        badge = "HQ",
+                        resolutionOrBitrate = "128 kbps",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = companionAudioCandidate,
+                        codec = "AAC / MP4"
+                    )
+                )
+                UrlAnalysisOutcome.Success(
+                    MediaAnalysisResult(
+                        mediaId = "reddit_${UUID.randomUUID().toString().take(8)}",
+                        originalUrl = originalUrl,
+                        normalizedUrl = originalUrl,
+                        title = title,
+                        authorOrChannel = author,
+                        durationSeconds = redditVideo.optInt("duration", 0),
+                        durationFormatted = "Reddit Video",
+                        providerId = "social_universal_share",
+                        providerName = "Reddit",
+                        providerBadgeColorHex = 0xFFFF4500,
+                        thumbnailUrl = fallbackThumb,
+                        videoOptions = vOpts,
+                        audioOptions = aOpts,
+                        isAuthorizedStream = true,
+                        securityNotice = "Verified Reddit Direct Media Stream"
+                    )
+                )
             }
         } catch (_: Exception) {
             null

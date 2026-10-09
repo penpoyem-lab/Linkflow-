@@ -921,16 +921,25 @@ private fun AnalyzedMediaPreviewCard(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = if (selectedFormat == MediaFormat.MP3 || (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty())) {
-                            Icons.Default.AudioFile
-                        } else {
-                            Icons.Default.VideoFile
-                        },
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    if (!analysis.thumbnailUrl.isNullOrBlank()) {
+                        coil.compose.AsyncImage(
+                            model = analysis.thumbnailUrl,
+                            contentDescription = analysis.title,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (selectedFormat == MediaFormat.MP3 || (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty())) {
+                                Icons.Default.AudioFile
+                            } else {
+                                Icons.Default.VideoFile
+                            },
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
                 }
 
                 Column(modifier = Modifier.weight(1f)) {

@@ -134,28 +134,49 @@ fun QualitySelectorSheet(
                     }
                 }
 
-                // Header Title & Subtitle matching Image 3
-                Column(
+                // Header Title, Thumbnail Preview & Subtitle
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 22.dp, vertical = 6.dp)
+                        .padding(horizontal = 22.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text(
-                        text = "Video Quality",
-                        style = MaterialTheme.typography.headlineLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 30.sp
-                        ),
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Choose quality to download • ${analysis.title}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color(0xFF94A3B8),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (!analysis.thumbnailUrl.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 76.dp, height = 56.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.08f))
+                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                        ) {
+                            coil.compose.AsyncImage(
+                                model = analysis.thumbnailUrl,
+                                contentDescription = analysis.title,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Video Quality",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 28.sp
+                            ),
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${analysis.providerName} • ${analysis.title}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF94A3B8),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -333,8 +354,8 @@ private fun QualityOptionRow(
         label = "row_bg"
     )
 
-    val is4K = option.badge == "4K"
-    val isHD = option.badge == "HD"
+    val is4K = option.badge == "4K" || option.badge == "2K"
+    val isHD = option.badge == "HD" || option.badge == "1080p HD"
     val isRecommended = option.badge == "Recommended"
     val isAudio = option.format == MediaFormat.MP3
 
