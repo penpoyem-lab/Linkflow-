@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.DownloadTaskEntity
 import com.example.data.model.DownloadJobState
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassPrimaryButton
+import com.example.ui.components.LiquidGlassSecondaryButton
 import com.example.ui.components.PlayStorePullToRefreshBox
 import com.example.ui.components.PlayStoreScallopedLoader
 import com.example.ui.components.StaggeredAnimatedEntrance
@@ -281,13 +283,12 @@ fun DownloadsQueueScreen(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Button(
+                                LiquidGlassPrimaryButton(
+                                    text = "Go to Home Screen",
+                                    icon = Icons.Default.Download,
                                     onClick = onExploreHome,
-                                    colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Text("Go to Home Screen", color = Color.White)
-                                }
+                                    cornerRadius = 18.dp
+                                )
                             }
                         }
                     }
@@ -465,8 +466,9 @@ private fun DownloadQueueItemCard(
                 ) {
                     if (isActiveTransfer) {
                         PlayStoreScallopedLoader(
-                            size = 30.dp,
-                            color = Color(0xFFA8C7FA),
+                            size = 34.dp,
+                            color = Color(0xFFEBD0C7),
+                            trackColor = Color(0xFF5D423B),
                             isSpinning = true,
                             reducedMotion = reducedMotion
                         )
@@ -712,38 +714,31 @@ fun DownloadJobDetailsSheet(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (task.state == DownloadJobState.COMPLETED.name) {
-                        Button(
+                        LiquidGlassPrimaryButton(
+                            text = "Play / Open",
+                            icon = Icons.Default.FolderOpen,
                             onClick = onPlayFile,
-                            colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                            shape = RoundedCornerShape(14.dp),
+                            cornerRadius = 16.dp,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Play / Open", color = Color.White)
-                        }
-                        Button(
+                        )
+                        LiquidGlassSecondaryButton(
+                            text = "Share",
+                            icon = Icons.Default.Share,
                             onClick = onShareFile,
-                            colors = ButtonDefaults.buttonColors(containerColor = tokens.glassSurfaceElevated),
-                            shape = RoundedCornerShape(14.dp),
+                            cornerRadius = 16.dp,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Share", color = Color.White)
-                        }
+                        )
                     } else {
-                        Button(
+                        LiquidGlassPrimaryButton(
+                            text = "Open Live Progress Ring",
                             onClick = onOpenLiveProgress,
-                            colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                            shape = RoundedCornerShape(14.dp),
+                            cornerRadius = 16.dp,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Open Live Progress Ring", color = Color.White)
-                        }
+                        )
                     }
                     IconButton(onClick = onDeleteFile) {
                         Icon(

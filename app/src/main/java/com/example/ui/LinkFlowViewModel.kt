@@ -15,9 +15,13 @@ import com.example.data.model.MediaAnalysisResult
 import com.example.data.model.MediaFormat
 import com.example.data.model.ProviderStatusInfo
 import com.example.data.model.QualityOption
+import com.example.data.service.AppUpdateManager
 import com.example.data.service.DownloadQueueManager
 import com.example.data.service.MediaAnalyzerEngine
+import com.example.data.service.OtaInstallPhase
+import com.example.data.service.OtaUpdateUiState
 import com.example.data.service.UrlAnalysisOutcome
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -80,11 +84,16 @@ class LinkFlowViewModel(
     private val dao: LinkFlowDao,
     private val preferencesRepository: PreferencesRepository,
     private val analyzerEngine: MediaAnalyzerEngine,
-    private val queueManager: DownloadQueueManager
+    private val queueManager: DownloadQueueManager,
+    private val appUpdateManager: AppUpdateManager = AppUpdateManager(appContext)
 ) : ViewModel() {
+
+    private var otaDownloadJob: Job? = null
 
     private val _uiState = MutableStateFlow(LinkFlowUiState())
     val uiState: StateFlow<LinkFlowUiState> = _uiState.asStateFlow()
+
+    val otaUpdateState: StateFlow<OtaUpdateUiState> = appUpdateManager.state
 
     val preferences: StateFlow<UserPreferencesState> = preferencesRepository.preferencesFlow
         .stateIn(
@@ -115,6 +124,75 @@ class LinkFlowViewModel(
 
     fun completeSplash() {
         _uiState.update { it.copy(showSplash = false) }
+        checkForAppUpdates(isManualUserTrigger = false)
+    }
+
+    fun checkForAppUpdates(isManualUserTrigger: Boolean = false) {
+        viewModelScope.launch {
+            val prefs = preferences.value
+            val phase = appUpdateManager.checkForUpdates(
+                repoSlug = prefs.githubRepoSlug,
+                dismissedVersionTag = prefs.dismissedUpdateTag,
+                dismissedTimestampMs = prefs.dismissedUpdateTimestampMs,
+                isManualUserTrigger = isManualUserTrigger
+            )
+            if (isManualUserTrigger) {
+                when (phase) {
+                    OtaInstallPhase.AVAILABLE -> {
+                        val ver = appUpdateManager.state.value.releaseInfo?.cleanVersionName ?: ""
+                        showToast("Update v$ver available!")
+                    }
+                    OtaInstallPhase.UP_TO_DATE -> {
+                        val msg = appUpdateManager.state.value.statusMessage ?: "You are on the latest version."
+                        showToast(msg)
+                    }
+                    OtaInstallPhase.ERROR -> {
+                        val err = appUpdateManager.state.value.errorMessage ?: "Could not check GitHub Releases."
+                        showToast(err)
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    fun triggerPreviewOtaUpdateDialog() {
+        appUpdateManager.triggerPreviewUpdateDialog(preferences.value.appBrandName)
+    }
+
+    fun startOtaUpdateInstall() {
+        otaDownloadJob?.cancel()
+        otaDownloadJob = viewModelScope.launch {
+            appUpdateManager.downloadAndVerifyUpdateApk()
+        }
+    }
+
+    fun cancelOtaUpdateDownload() {
+        otaDownloadJob?.cancel()
+        otaDownloadJob = null
+        showToast("Update download cancelled")
+    }
+
+    fun grantUnknownSourcesAndInstallOta() {
+        appUpdateManager.launchInstallerForDownloadedApk()
+    }
+
+    fun dismissOtaUpdateLater() {
+        val tag = appUpdateManager.state.value.releaseInfo?.tagName
+        appUpdateManager.dismissUpdateDialog()
+        if (!tag.isNullOrBlank()) {
+            viewModelScope.launch {
+                preferencesRepository.recordDismissedUpdate(tag)
+            }
+        }
+    }
+
+    fun setGithubRepoSlug(slug: String) {
+        viewModelScope.launch {
+            preferencesRepository.setGithubRepoSlug(slug)
+            appUpdateManager.setRepositorySlug(slug)
+            showToast("GitHub Release repository updated to $slug")
+        }
     }
 
     fun handleIncomingSharedContent(rawSharedText: String) {
@@ -509,8 +587,9 @@ class LinkFlowViewModel(
             val dao = db.linkFlowDao()
             val prefs = PreferencesRepository(appCtx)
             val analyzer = MediaAnalyzerEngine()
-            val queue = DownloadQueueManager(appCtx, dao)
-            return LinkFlowViewModel(appCtx, dao, prefs, analyzer, queue) as T
+            val queue = DownloadQueueManager(appCtx, dao, analyzer)
+            val updater = AppUpdateManager(appCtx)
+            return LinkFlowViewModel(appCtx, dao, prefs, analyzer, queue, updater) as T
         }
     }
 }

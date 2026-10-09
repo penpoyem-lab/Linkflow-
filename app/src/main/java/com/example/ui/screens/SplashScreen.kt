@@ -260,25 +260,21 @@ fun AnimatedSplashScreen(
             )
         }
 
-        Row(
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 52.dp)
+                .padding(bottom = 48.dp)
+                .background(Color.Transparent)
                 .alpha(textAlpha.value),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            contentAlignment = Alignment.Center
         ) {
-            for (i in 0..3) {
-                val activeDot = i == 1 || i == 2
-                Box(
-                    modifier = Modifier
-                        .size(if (activeDot) 10.dp else 6.dp)
-                        .background(
-                            color = if (activeDot) Color(0xFF22D3EE) else Color(0x8838BDF8),
-                            shape = CircleShape
-                        )
-                )
-            }
+            com.example.ui.components.PlayStoreScallopedLoader(
+                size = 46.dp,
+                color = Color(0xFFEBD0C7),
+                trackColor = Color(0xFF5D423B),
+                isSpinning = true,
+                reducedMotion = reducedMotion
+            )
         }
     }
 }

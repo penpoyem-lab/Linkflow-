@@ -98,6 +98,8 @@ import com.example.ui.LinkFlowUiState
 import com.example.ui.PrimaryTab
 import com.example.ui.components.LinkFlowLogoEmblem
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassPrimaryButton
+import com.example.ui.components.LiquidGlassSecondaryButton
 import com.example.ui.components.PlayStorePullToRefreshBox
 import com.example.ui.components.PlayStoreScallopedLoader
 import com.example.ui.components.StaggeredAnimatedEntrance
@@ -118,6 +120,7 @@ fun HomeScreen(
     onAnalyzeUrl: (String?) -> Unit,
     onSelectQuickFormat: (MediaFormat) -> Unit,
     onOpenQualitySheet: () -> Unit,
+    onStartQuickDownload: () -> Unit = onOpenQualitySheet,
     onOpenActiveModal: (String) -> Unit,
     onNavigateToTab: (PrimaryTab) -> Unit,
     onPullToRefresh: () -> Unit,
@@ -207,27 +210,58 @@ fun HomeScreen(
                                 }
                             }
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { onNavigateToTab(PrimaryTab.DOWNLOADS) },
-                                    modifier = Modifier.testTag("header_activity_button")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.14f),
+                                                    tokens.glassSurfaceElevated
+                                                )
+                                            )
+                                        )
+                                        .border(1.dp, tokens.glassBorderSubtle, CircleShape)
+                                        .springBounceClickable { onNavigateToTab(PrimaryTab.DOWNLOADS) }
+                                        .testTag("header_activity_button"),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.NotificationsNone,
                                         contentDescription = "Download Queue & Activity",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        tint = tokens.accentCyan,
+                                        modifier = Modifier.size(20.dp)
                                     )
                                 }
 
                                 Box {
-                                    IconButton(
-                                        onClick = { overflowExpanded = true },
-                                        modifier = Modifier.testTag("header_overflow_button")
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(
+                                                        Color.White.copy(alpha = 0.14f),
+                                                        tokens.glassSurfaceElevated
+                                                    )
+                                                )
+                                            )
+                                            .border(1.dp, tokens.glassBorderSubtle, CircleShape)
+                                            .springBounceClickable { overflowExpanded = true }
+                                            .testTag("header_overflow_button"),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.MoreVert,
                                             contentDescription = "More options",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
 
@@ -383,15 +417,31 @@ fun HomeScreen(
                                 Box(
                                     modifier = Modifier
                                         .shadow(
-                                            elevation = 8.dp,
+                                            elevation = 12.dp,
                                             shape = RoundedCornerShape(22.dp),
-                                            spotColor = tokens.accentBlue
+                                            ambientColor = tokens.accentBlue,
+                                            spotColor = tokens.accentCyan
                                         )
                                         .clip(RoundedCornerShape(22.dp))
                                         .background(
-                                            brush = Brush.horizontalGradient(
-                                                listOf(tokens.accentBlue, tokens.accentCyan)
+                                            brush = Brush.linearGradient(
+                                                listOf(
+                                                    tokens.accentBlue.copy(alpha = 0.92f),
+                                                    tokens.accentCyan.copy(alpha = 0.84f),
+                                                    tokens.accentViolet.copy(alpha = 0.85f)
+                                                )
                                             )
+                                        )
+                                        .border(
+                                            width = 1.2.dp,
+                                            brush = Brush.verticalGradient(
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.82f),
+                                                    tokens.accentCyan.copy(alpha = 0.50f),
+                                                    Color.White.copy(alpha = 0.25f)
+                                                )
+                                            ),
+                                            shape = RoundedCornerShape(22.dp)
                                         )
                                         .springBounceClickable(pressedScale = 0.91f) {
                                             val clipText = clipboardManager.getText()?.text?.trim()
@@ -417,41 +467,26 @@ fun HomeScreen(
                             }
                         }
 
-                        // Primary Animated "Analyze Link" Action Bar when URL is entered
+                        // Primary Animated "Analyze Link" Liquid-Glass Action Bar when URL is entered
                         AnimatedVisibility(
                             visible = uiState.urlInput.isNotBlank() && !uiState.isAnalyzingUrl,
                             enter = fadeIn() + expandVertically(),
                             exit = fadeOut() + shrinkVertically()
                         ) {
-                            Button(
+                            LiquidGlassPrimaryButton(
+                                text = "Analyze Link",
+                                icon = Icons.Default.VerifiedUser,
+                                enabled = !uiState.isAnalyzingUrl,
+                                cornerRadius = 22.dp,
                                 onClick = {
                                     focusManager.clearFocus()
                                     onAnalyzeUrl(null)
                                 },
-                                enabled = !uiState.isAnalyzingUrl,
-                                shape = RoundedCornerShape(20.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = tokens.accentBlue
-                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(50.dp)
+                                    .height(52.dp)
                                     .testTag("analyze_link_button")
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.VerifiedUser,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Analyze Link",
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = FontWeight.Bold
-                                    ),
-                                    color = Color.White
-                                )
-                            }
+                            )
                         }
                     }
                 }
@@ -481,6 +516,7 @@ fun HomeScreen(
                         AnalyzedMediaPreviewCard(
                             analysis = analysis,
                             selectedFormat = uiState.quickFormatSelection,
+                            onQuickDownload = onStartQuickDownload,
                             onOpenQualityOptions = onOpenQualitySheet
                         )
                     }
@@ -625,8 +661,9 @@ private fun TransparentScallopedLoadingView(
         contentAlignment = Alignment.Center
     ) {
         PlayStoreScallopedLoader(
-            size = 54.dp,
-            color = Color(0xFFA8C7FA),
+            size = 56.dp,
+            color = Color(0xFFEBD0C7),
+            trackColor = Color(0xFF5D423B),
             isSpinning = true,
             reducedMotion = reducedMotion
         )
@@ -676,13 +713,12 @@ private fun EmptyActivityCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
-            Button(
+            LiquidGlassPrimaryButton(
+                text = "Paste Link from Clipboard",
+                icon = Icons.Default.Link,
                 onClick = onPasteFromClipboard,
-                colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Text("Paste Link from Clipboard", color = Color.White)
-            }
+                cornerRadius = 18.dp
+            )
         }
     }
 }
@@ -723,9 +759,9 @@ private fun FormatSelectorBar(
             Row(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black.copy(alpha = 0.28f))
-                    .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Color.Black.copy(alpha = 0.30f))
+                    .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(22.dp))
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -739,18 +775,47 @@ private fun FormatSelectorBar(
                         ),
                         label = "fmt_scale"
                     )
-                    val bgColor by animateColorAsState(
-                        targetValue = if (isSelected) tokens.accentBlue else Color.Transparent,
-                        animationSpec = tween(260),
-                        label = "fmt_bg"
-                    )
 
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .scale(scale)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(bgColor)
+                            .then(
+                                if (isSelected) {
+                                    Modifier
+                                        .shadow(
+                                            elevation = 10.dp,
+                                            shape = RoundedCornerShape(18.dp),
+                                            ambientColor = tokens.accentBlue,
+                                            spotColor = tokens.accentCyan
+                                        )
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    tokens.accentBlue.copy(alpha = 0.90f),
+                                                    tokens.accentCyan.copy(alpha = 0.78f),
+                                                    tokens.accentViolet.copy(alpha = 0.82f)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            width = 1.1.dp,
+                                            brush = Brush.verticalGradient(
+                                                listOf(
+                                                    Color.White.copy(alpha = 0.80f),
+                                                    tokens.accentCyan.copy(alpha = 0.45f),
+                                                    Color.White.copy(alpha = 0.20f)
+                                                )
+                                            ),
+                                            shape = RoundedCornerShape(18.dp)
+                                        )
+                                } else {
+                                    Modifier
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(Color.Transparent)
+                                }
+                            )
                             .springBounceClickable(pressedScale = 0.93f) {
                                 onSelectFormat(format)
                             }
@@ -787,6 +852,7 @@ private fun FormatSelectorBar(
 private fun AnalyzedMediaPreviewCard(
     analysis: MediaAnalysisResult,
     selectedFormat: MediaFormat,
+    onQuickDownload: () -> Unit,
     onOpenQualityOptions: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
@@ -840,16 +906,23 @@ private fun AnalyzedMediaPreviewCard(
                 Box(
                     modifier = Modifier
                         .size(width = 72.dp, height = 56.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(16.dp))
                         .background(
                             Brush.linearGradient(
-                                listOf(tokens.accentBlue.copy(alpha = 0.35f), tokens.accentViolet.copy(alpha = 0.35f))
+                                listOf(tokens.accentBlue.copy(alpha = 0.45f), tokens.accentViolet.copy(alpha = 0.45f))
                             )
+                        )
+                        .border(
+                            1.dp,
+                            Brush.verticalGradient(
+                                listOf(Color.White.copy(alpha = 0.55f), tokens.accentCyan.copy(alpha = 0.30f))
+                            ),
+                            RoundedCornerShape(16.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty()) {
+                        imageVector = if (selectedFormat == MediaFormat.MP3 || (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty())) {
                             Icons.Default.AudioFile
                         } else {
                             Icons.Default.VideoFile
@@ -877,24 +950,26 @@ private fun AnalyzedMediaPreviewCard(
                 }
             }
 
-            Button(
-                onClick = onOpenQualityOptions,
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("open_quality_selector_button")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                LiquidGlassPrimaryButton(
+                    text = "Download ${selectedFormat.name} Now",
+                    icon = Icons.Default.Download,
+                    onClick = onQuickDownload,
+                    cornerRadius = 16.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .testTag("quick_download_now_button")
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "Choose ${selectedFormat.name} Download Options",
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+
+                LiquidGlassSecondaryButton(
+                    text = "Qualities",
+                    onClick = onOpenQualityOptions,
+                    cornerRadius = 16.dp,
+                    modifier = Modifier
+                        .testTag("open_quality_selector_button")
                 )
             }
         }

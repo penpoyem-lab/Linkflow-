@@ -64,6 +64,7 @@ import com.example.ui.screens.MediaPlaybackModal
 import com.example.ui.screens.PrivacyAndTermsSheet
 import com.example.ui.screens.QualitySelectorSheet
 import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SoftwareUpdateModal
 import com.example.ui.screens.SupportedSourcesSheet
 import com.example.ui.theme.LinkFlowTheme
 import com.example.ui.theme.LocalLinkFlowTokens
@@ -123,6 +124,7 @@ fun LinkFlowApp(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val otaUpdateState by viewModel.otaUpdateState.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     val allDownloads by viewModel.allDownloads.collectAsStateWithLifecycle()
     val recentAnalyses by viewModel.recentAnalyses.collectAsStateWithLifecycle()
@@ -146,7 +148,8 @@ fun LinkFlowApp(
 
     // Handle system Back navigation cleanly across modals and tabs
     BackHandler(
-        enabled = uiState.playbackPreviewTask != null ||
+        enabled = otaUpdateState.showModal ||
+            uiState.playbackPreviewTask != null ||
             uiState.inspectJobDetailsId != null ||
             uiState.activeModalJobId != null ||
             uiState.showQualitySheet ||
@@ -155,6 +158,7 @@ fun LinkFlowApp(
             uiState.currentTab != PrimaryTab.HOME
     ) {
         when {
+            otaUpdateState.showModal -> viewModel.dismissOtaUpdateLater()
             uiState.playbackPreviewTask != null -> viewModel.closePlaybackPreview()
             uiState.inspectJobDetailsId != null -> viewModel.closeJobDetails()
             uiState.activeModalJobId != null -> viewModel.dismissActiveProgressModal()
@@ -255,6 +259,7 @@ fun LinkFlowApp(
                                             },
                                             onSelectQuickFormat = viewModel::selectQuickFormat,
                                             onOpenQualitySheet = viewModel::openQualitySelector,
+                                            onStartQuickDownload = viewModel::startSelectedDownload,
                                             onOpenActiveModal = viewModel::openActiveProgressModal,
                                             onNavigateToTab = viewModel::selectTab,
                                             onPullToRefresh = viewModel::triggerPullToRefresh,
@@ -326,6 +331,7 @@ fun LinkFlowApp(
                                         SettingsScreen(
                                             preferences = preferences,
                                             storageMetrics = uiState.storageMetrics,
+                                            otaState = otaUpdateState,
                                             onThemeModeChange = viewModel::setThemeMode,
                                             onAccentPresetChange = viewModel::setAccentPreset,
                                             onBrandNameChange = viewModel::setAppBrandName,
@@ -337,6 +343,11 @@ fun LinkFlowApp(
                                             onNotificationsChange = viewModel::setNotificationsEnabled,
                                             onWifiOnlyChange = viewModel::setWifiOnlyDownloads,
                                             onClearHistory = viewModel::clearAllHistoryAndAnalyses,
+                                            isRefreshing = uiState.isRefreshing,
+                                            onPullToRefresh = viewModel::triggerPullToRefresh,
+                                            onCheckForUpdates = { viewModel.checkForAppUpdates(isManualUserTrigger = true) },
+                                            onPreviewUpdateDialog = viewModel::triggerPreviewOtaUpdateDialog,
+                                            onGithubRepoChange = viewModel::setGithubRepoSlug,
                                             onShowAbout = { viewModel.setShowAboutDialog(true) },
                                             onShowSupportedSources = { viewModel.setShowSupportedSourcesSheet(true) },
                                             onShowPrivacyTerms = { viewModel.setShowPrivacyTermsSheet(true) }
@@ -527,6 +538,35 @@ fun LinkFlowApp(
                         )
                     }
 
+                    // Overlay 8: Full-Screen OTA Software Update Modal (GitHub Releases)
+                    AnimatedVisibility(
+                        visible = otaUpdateState.showModal && otaUpdateState.releaseInfo != null,
+                        enter = fadeIn(tween(280)) + scaleIn(
+                            initialScale = 0.92f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        ) + slideInVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            initialOffsetY = { it / 3 }
+                        ),
+                        exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.92f) + slideOutVertically(targetOffsetY = { it / 3 })
+                    ) {
+                        SoftwareUpdateModal(
+                            otaState = otaUpdateState,
+                            brandName = preferences.appBrandName,
+                            reducedMotion = preferences.reducedMotion,
+                            onInstallNow = viewModel::startOtaUpdateInstall,
+                            onCancelDownload = viewModel::cancelOtaUpdateDownload,
+                            onGrantInstallPermission = viewModel::grantUnknownSourcesAndInstallOta,
+                            onDismissLater = viewModel::dismissOtaUpdateLater
+                        )
+                    }
+
                     // Top Floating Liquid-Glass Toast Notification
                     AnimatedVisibility(
                         visible = uiState.toastMessage != null,
@@ -544,19 +584,17 @@ fun LinkFlowApp(
                             .padding(top = 12.dp)
                     ) {
                         uiState.toastMessage?.let { msg ->
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(22.dp))
-                                    .background(Color(0xEE0F172A))
-                                    .border(1.dp, tokens.accentCyan, RoundedCornerShape(22.dp))
-                                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                            com.example.ui.components.LiquidGlassCard(
+                                cornerRadius = 24.dp,
+                                isHighlighted = true
                             ) {
                                 Text(
                                     text = msg,
                                     style = MaterialTheme.typography.labelLarge.copy(
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = Color.White
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                                 )
                             }
                         }

@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -81,6 +82,8 @@ import com.example.data.model.MediaFormat
 import com.example.ui.LibrarySortOption
 import com.example.ui.components.AnimatedAudioWaveform
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassPrimaryButton
+import com.example.ui.components.LiquidGlassSecondaryButton
 import com.example.ui.components.PlayStorePullToRefreshBox
 import com.example.ui.components.StaggeredAnimatedEntrance
 import com.example.ui.components.springBounceClickable
@@ -352,13 +355,12 @@ fun LibraryScreen(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Button(
+                                LiquidGlassPrimaryButton(
+                                    text = "Go to Home Screen",
+                                    icon = Icons.Default.VideoLibrary,
                                     onClick = onExploreStreams,
-                                    colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Text("Go to Home Screen", color = Color.White)
-                                }
+                                    cornerRadius = 18.dp
+                                )
                             }
                         }
                     }
@@ -481,18 +483,47 @@ private fun FilterChipPill(
         ),
         label = "chip_scale"
     )
-    val bgColor by animateColorAsState(
-        targetValue = if (selected) tokens.accentBlue else tokens.glassSurfaceElevated,
-        animationSpec = tween(220),
-        label = "chip_bg"
-    )
     Box(
         modifier = Modifier
             .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
+            .clip(RoundedCornerShape(18.dp))
+            .background(
+                if (selected) {
+                    Brush.linearGradient(
+                        listOf(
+                            tokens.accentBlue.copy(alpha = 0.90f),
+                            tokens.accentCyan.copy(alpha = 0.78f),
+                            tokens.accentViolet.copy(alpha = 0.80f)
+                        )
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        listOf(
+                            Color.White.copy(alpha = if (tokens.isDark) 0.12f else 0.75f),
+                            tokens.glassSurfaceElevated
+                        )
+                    )
+                }
+            )
+            .then(
+                if (selected) {
+                    Modifier.border(
+                        width = 1.dp,
+                        brush = Brush.verticalGradient(
+                            listOf(Color.White.copy(alpha = 0.80f), tokens.accentCyan.copy(alpha = 0.45f))
+                        ),
+                        shape = RoundedCornerShape(18.dp)
+                    )
+                } else {
+                    Modifier.border(
+                        width = 1.dp,
+                        color = tokens.glassBorderSubtle,
+                        shape = RoundedCornerShape(18.dp)
+                    )
+                }
+            )
             .springBounceClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
     ) {
         Text(
             text = label,
@@ -720,21 +751,34 @@ fun MediaPlaybackModal(
         }
     }
 
+    var activeVideoView by remember { mutableStateOf<android.widget.VideoView?>(null) }
+
     androidx.compose.runtime.DisposableEffect(mediaPlayer) {
         onDispose {
             runCatching {
                 mediaPlayer?.stop()
                 mediaPlayer?.release()
             }
+            runCatching {
+                activeVideoView?.stopPlayback()
+            }
         }
     }
 
-    LaunchedEffect(isPlaying, mediaPlayer) {
-        while (isPlaying && mediaPlayer != null) {
-            val dur = runCatching { mediaPlayer.duration }.getOrDefault(0)
-            val pos = runCatching { mediaPlayer.currentPosition }.getOrDefault(0)
-            if (dur > 0) {
-                progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+    LaunchedEffect(isPlaying, mediaPlayer, activeVideoView) {
+        while (isPlaying) {
+            if (mediaPlayer != null) {
+                val dur = runCatching { mediaPlayer.duration }.getOrDefault(0)
+                val pos = runCatching { mediaPlayer.currentPosition }.getOrDefault(0)
+                if (dur > 0) {
+                    progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                }
+            } else if (activeVideoView != null) {
+                val dur = runCatching { activeVideoView?.duration ?: 0 }.getOrDefault(0)
+                val pos = runCatching { activeVideoView?.currentPosition ?: 0 }.getOrDefault(0)
+                if (dur > 0) {
+                    progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
+                }
             }
             delay(200)
         }
@@ -801,6 +845,7 @@ fun MediaPlaybackModal(
                         androidx.compose.ui.viewinterop.AndroidView(
                             factory = { ctx ->
                                 android.widget.VideoView(ctx).apply {
+                                    activeVideoView = this
                                     setVideoPath(localFile.absolutePath)
                                     setOnPreparedListener { mp ->
                                         mp.isLooping = false
@@ -898,7 +943,9 @@ fun MediaPlaybackModal(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Button(
+                    LiquidGlassPrimaryButton(
+                        text = if (isPlaying) "Pause" else "Play",
+                        icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         onClick = {
                             if (mediaPlayer != null) {
                                 if (isPlaying) {
@@ -916,27 +963,16 @@ fun MediaPlaybackModal(
                                 }
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = tokens.accentBlue),
-                        shape = RoundedCornerShape(16.dp),
+                        cornerRadius = 18.dp,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = null
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (isPlaying) "Pause" else "Play", color = Color.White)
-                    }
-                    Button(
+                    )
+                    LiquidGlassSecondaryButton(
+                        text = "Share File",
+                        icon = Icons.Default.Share,
                         onClick = onShare,
-                        colors = ButtonDefaults.buttonColors(containerColor = tokens.glassSurfaceElevated),
-                        shape = RoundedCornerShape(16.dp),
+                        cornerRadius = 18.dp,
                         modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Share File", color = Color.White)
-                    }
+                    )
                 }
             }
         }

@@ -147,25 +147,28 @@ fun LinkFlowTheme(
     val tokens = if (isDark) {
         LinkFlowDesignTokens(
             isDark = true,
-            glassSurface = GlassSurfaceDark,
-            glassSurfaceElevated = GlassSurfaceHighlightDark,
-            glassBorder = primaryAccent.copy(alpha = 0.38f),
-            glassBorderSubtle = GlassBorderSubtleDark,
+            glassSurface = Color(0x40162244),
+            glassSurfaceElevated = Color(0x5E233464),
+            glassBorder = primaryAccent.copy(alpha = 0.45f),
+            glassBorderSubtle = Color(0x3694A3B8),
             accentCyan = secondaryAccent,
             accentBlue = primaryAccent,
             accentViolet = NeonVioletBright,
             primaryGradient = Brush.linearGradient(listOf(primaryAccent, secondaryAccent)),
             glassBorderGradient = Brush.linearGradient(
                 listOf(
-                    secondaryAccent.copy(alpha = 0.65f),
-                    Color(0x2694A3B8),
-                    primaryAccent.copy(alpha = 0.45f)
+                    Color.White.copy(alpha = 0.48f),
+                    secondaryAccent.copy(alpha = 0.68f),
+                    Color(0x2894A3B8),
+                    primaryAccent.copy(alpha = 0.52f),
+                    Color.White.copy(alpha = 0.28f)
                 )
             ),
             cardBackgroundGradient = Brush.verticalGradient(
                 listOf(
-                    Color(0x4D1E294B),
-                    Color(0x260B1021)
+                    Color(0x5E1F2E5A),
+                    Color(0x38131D3B),
+                    Color(0x2B0B1124)
                 )
             ),
             successColor = EmeraldSuccess,
@@ -175,25 +178,27 @@ fun LinkFlowTheme(
     } else {
         LinkFlowDesignTokens(
             isDark = false,
-            glassSurface = GlassSurfaceLight,
-            glassSurfaceElevated = Color(0xE6FFFFFF),
-            glassBorder = primaryAccent.copy(alpha = 0.35f),
-            glassBorderSubtle = Color(0x3364748B),
+            glassSurface = Color(0xD9FFFFFF),
+            glassSurfaceElevated = Color(0xF2FFFFFF),
+            glassBorder = primaryAccent.copy(alpha = 0.42f),
+            glassBorderSubtle = Color(0x4064748B),
             accentCyan = secondaryAccent,
             accentBlue = primaryAccent,
             accentViolet = NeonViolet,
             primaryGradient = Brush.linearGradient(listOf(primaryAccent, secondaryAccent)),
             glassBorderGradient = Brush.linearGradient(
                 listOf(
-                    primaryAccent.copy(alpha = 0.55f),
-                    Color(0x3394A3B8),
-                    secondaryAccent.copy(alpha = 0.45f)
+                    Color.White.copy(alpha = 0.90f),
+                    primaryAccent.copy(alpha = 0.58f),
+                    Color(0x3894A3B8),
+                    secondaryAccent.copy(alpha = 0.48f)
                 )
             ),
             cardBackgroundGradient = Brush.verticalGradient(
                 listOf(
-                    Color(0xE6FFFFFF),
-                    Color(0xCCF1F5F9)
+                    Color(0xF2FFFFFF),
+                    Color(0xE0F1F5F9),
+                    Color(0xD4E2E8F0)
                 )
             ),
             successColor = EmeraldSuccess,

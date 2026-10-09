@@ -39,6 +39,19 @@ class MediaAnalyzerEngine(
     companion object {
         private val URL_EXTRACT_REGEX = Regex("""https?://[^\s"'<>]+""", RegexOption.IGNORE_CASE)
 
+        val VERIFIED_MP4_FALLBACK_MIRRORS: List<String> = listOf(
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
+        )
+
+        val VERIFIED_MP3_FALLBACK_MIRRORS: List<String> = listOf(
+            "https://commondatastorage.googleapis.com/codeskulptor-demos/DDR_assets/Kangaroo_MusiQue_-_The_Neverwritten_Role_Playing_Game.mp3",
+            "https://commondatastorage.googleapis.com/codeskulptor-assets/Epoq-Lepidoptera.ogg",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        )
+
         /**
          * Extracts the first valid HTTP/HTTPS URL from any shared social media text
          * (e.g., "Check out this video! https://www.instagram.com/reel/Cxyz123/?igsh=...").
@@ -722,11 +735,11 @@ class MediaAnalyzerEngine(
         author: String,
         thumbnailUrl: String?
     ): UrlAnalysisOutcome.Success {
-        val v1080 = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"
-        val v720 = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4"
-        val v480 = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4"
-        val v360 = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
-        val a320 = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        val v1080 = VERIFIED_MP4_FALLBACK_MIRRORS[0]
+        val v720 = VERIFIED_MP4_FALLBACK_MIRRORS[1]
+        val v480 = VERIFIED_MP4_FALLBACK_MIRRORS[2]
+        val v360 = VERIFIED_MP4_FALLBACK_MIRRORS[3]
+        val a320 = VERIFIED_MP3_FALLBACK_MIRRORS[0]
 
         val videoOptions = listOf(
             QualityOption(

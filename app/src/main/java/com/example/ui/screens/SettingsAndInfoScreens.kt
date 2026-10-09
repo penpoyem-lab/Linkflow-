@@ -61,9 +61,12 @@ import com.example.data.local.UserPreferencesState
 import com.example.data.model.MediaFormat
 import com.example.data.model.ProviderStatusInfo
 import com.example.data.model.ProviderSupportLevel
+import com.example.data.service.OtaInstallPhase
+import com.example.data.service.OtaUpdateUiState
 import com.example.ui.StorageMetrics
 import com.example.ui.components.LinkFlowLogoEmblem
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassPrimaryButton
 import com.example.ui.components.StaggeredAnimatedEntrance
 import com.example.ui.components.springBounceClickable
 import com.example.ui.theme.LocalLinkFlowTokens
@@ -73,6 +76,7 @@ import com.example.util.FormatUtils
 fun SettingsScreen(
     preferences: UserPreferencesState,
     storageMetrics: StorageMetrics,
+    otaState: OtaUpdateUiState = OtaUpdateUiState(),
     onThemeModeChange: (String) -> Unit,
     onAccentPresetChange: (String) -> Unit,
     onBrandNameChange: (String) -> Unit,
@@ -84,6 +88,11 @@ fun SettingsScreen(
     onNotificationsChange: (Boolean) -> Unit,
     onWifiOnlyChange: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
+    isRefreshing: Boolean = false,
+    onPullToRefresh: () -> Unit = {},
+    onCheckForUpdates: () -> Unit = {},
+    onPreviewUpdateDialog: () -> Unit = {},
+    onGithubRepoChange: (String) -> Unit = {},
     onShowAbout: () -> Unit,
     onShowSupportedSources: () -> Unit,
     onShowPrivacyTerms: () -> Unit
@@ -91,9 +100,16 @@ fun SettingsScreen(
     val tokens = LocalLinkFlowTokens.current
     var showBrandDialog by remember { mutableStateOf(false) }
     var brandInput by remember(preferences.appBrandName) { mutableStateOf(preferences.appBrandName) }
+    var showRepoDialog by remember { mutableStateOf(false) }
+    var repoInput by remember(preferences.githubRepoSlug) { mutableStateOf(preferences.githubRepoSlug) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var showLicenseSheet by remember { mutableStateOf(false) }
 
+    com.example.ui.components.PlayStorePullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onPullToRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -454,28 +470,16 @@ fun SettingsScreen(
                         )
                     }
 
-                    Button(
+                    LiquidGlassPrimaryButton(
+                        text = "Clear Analysis & Completed History",
+                        icon = Icons.Default.DeleteSweep,
+                        isDestructive = true,
                         onClick = { showClearConfirm = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = tokens.errorColor.copy(alpha = 0.18f)
-                        ),
-                        shape = RoundedCornerShape(14.dp),
+                        cornerRadius = 16.dp,
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("clear_history_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = null,
-                            tint = tokens.errorColor
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "Clear Analysis & Completed History",
-                            color = tokens.errorColor,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    )
                 }
             }
             }
@@ -496,6 +500,31 @@ fun SettingsScreen(
                         title = "Compliance, Sources & About"
                     )
 
+                    SettingsLinkRow(
+                        title = "Check for Software Updates (GitHub OTA)",
+                        subtitle = when (otaState.phase) {
+                            OtaInstallPhase.CHECKING -> "Checking GitHub Releases (${preferences.githubRepoSlug})…"
+                            OtaInstallPhase.AVAILABLE -> "Update ${otaState.releaseInfo?.tagName ?: ""} ready to install!"
+                            OtaInstallPhase.UP_TO_DATE -> "Up to date (v${otaState.installedVersionName}) • Repo: ${preferences.githubRepoSlug}"
+                            else -> "Installed v${otaState.installedVersionName} • Source: github.com/${preferences.githubRepoSlug}"
+                        },
+                        isLoading = otaState.phase == OtaInstallPhase.CHECKING,
+                        reducedMotion = preferences.reducedMotion,
+                        onClick = onCheckForUpdates
+                    )
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    SettingsLinkRow(
+                        title = "Preview Software Update Modal",
+                        subtitle = "Open the full-screen Liquid-Glass OTA Update dialog & changelog viewer",
+                        onClick = onPreviewUpdateDialog
+                    )
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    SettingsLinkRow(
+                        title = "GitHub Release Repository",
+                        subtitle = "https://github.com/${preferences.githubRepoSlug}/releases/latest",
+                        onClick = { showRepoDialog = true }
+                    )
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                     SettingsLinkRow(
                         title = "Supported Sources & Adapter Status",
                         subtitle = "Inspect verified Open-CDN, Direct HTTP, and oEmbed adapters",
@@ -524,11 +553,42 @@ fun SettingsScreen(
             }
         }
     }
+    }
 
     if (showLicenseSheet) {
         OpenSourceLicenseDialog(
             brandName = preferences.appBrandName,
             onDismiss = { showLicenseSheet = false }
+        )
+    }
+
+    if (showRepoDialog) {
+        AlertDialog(
+            onDismissRequest = { showRepoDialog = false },
+            title = { Text("GitHub Releases Repository") },
+            text = {
+                OutlinedTextField(
+                    value = repoInput,
+                    onValueChange = { repoInput = it },
+                    singleLine = true,
+                    label = { Text("OWNER/REPOSITORY") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onGithubRepoChange(repoInput)
+                        showRepoDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRepoDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -652,6 +712,8 @@ private fun SettingToggleRow(
 private fun SettingsLinkRow(
     title: String,
     subtitle: String,
+    isLoading: Boolean = false,
+    reducedMotion: Boolean = false,
     onClick: () -> Unit
 ) {
     Row(
@@ -675,11 +737,21 @@ private fun SettingsLinkRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        Text(
-            text = ">",
-            style = MaterialTheme.typography.titleMedium,
-            color = LocalLinkFlowTokens.current.accentCyan
-        )
+        if (isLoading) {
+            com.example.ui.components.PlayStoreScallopedLoader(
+                size = 26.dp,
+                color = Color(0xFFEBD0C7),
+                trackColor = Color(0xFF5D423B),
+                isSpinning = true,
+                reducedMotion = reducedMotion
+            )
+        } else {
+            Text(
+                text = ">",
+                style = MaterialTheme.typography.titleMedium,
+                color = LocalLinkFlowTokens.current.accentCyan
+            )
+        }
     }
 }
 

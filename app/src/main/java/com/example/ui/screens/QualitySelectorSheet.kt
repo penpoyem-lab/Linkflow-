@@ -63,6 +63,7 @@ import com.example.data.model.MediaFormat
 import com.example.data.model.QualityOption
 import com.example.ui.components.AnimatedAudioWaveform
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.LiquidGlassPrimaryButton
 import com.example.ui.theme.LocalLinkFlowTokens
 import com.example.util.FormatUtils
 
@@ -292,37 +293,16 @@ fun QualitySelectorSheet(
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Button(
+                    LiquidGlassPrimaryButton(
+                        text = "Download Selected",
+                        icon = Icons.Default.ExpandMore,
                         onClick = onStartDownload,
-                        shape = RoundedCornerShape(18.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB)
-                        ),
+                        cornerRadius = 20.dp,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(54.dp)
-                            .shadow(
-                                elevation = 12.dp,
-                                shape = RoundedCornerShape(18.dp),
-                                spotColor = tokens.accentBlue
-                            )
                             .testTag("download_selected_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ExpandMore,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Download Selected",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold
-                            ),
-                            color = Color.White
-                        )
-                    }
+                    )
 
                     Spacer(modifier = Modifier.height(8.dp))
 

@@ -1,10 +1,14 @@
 package com.example
 
+import com.example.data.service.AppUpdateManager
 import com.example.data.service.MediaAnalyzerEngine
 import com.example.data.service.UrlAnalysisOutcome
 import com.example.util.FormatUtils
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -60,5 +64,30 @@ class ExampleUnitTest {
     fun `byte formatting is accurate`() {
         assertEquals("0 B", FormatUtils.formatBytes(0))
         assertEquals("1.0 MB", FormatUtils.formatBytes(1024L * 1024L))
+    }
+
+    @Test
+    fun `semantic version comparison handles multi-digit versions and pre-releases accurately`() {
+        assertTrue(AppUpdateManager.compareSemanticVersions("v1.10.0", "v1.2.9") > 0)
+        assertTrue(AppUpdateManager.compareSemanticVersions("2.5", "1.0") > 0)
+        assertEquals(0, AppUpdateManager.compareSemanticVersions("v1.8.0", "1.8"))
+        assertTrue(AppUpdateManager.compareSemanticVersions("1.8.0", "1.8.0-beta1") > 0)
+    }
+
+    @Test
+    fun `parseMarkdownChangelog extracts summary and top features accurately`() {
+        val markdown = """
+            We've improved performance and stability across all streams.
+            
+            ### Top Features
+            - Faster Instagram & TikTok extraction
+            - Liquid-Glass navigation bar
+            - SHA-256 verified OTA updates
+        """.trimIndent()
+
+        val parsed = AppUpdateManager.parseMarkdownChangelog(markdown, "1.0")
+        assertTrue(parsed.summaryParagraph.contains("performance"))
+        assertEquals(3, parsed.topFeatures.size)
+        assertFalse(parsed.isMandatory)
     }
 }

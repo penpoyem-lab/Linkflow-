@@ -5,9 +5,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.data.model.MediaFormat
+import com.example.data.service.OtaUpdateUiState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -24,7 +26,10 @@ data class UserPreferencesState(
     val hapticFeedbackEnabled: Boolean = true,
     val notificationsEnabled: Boolean = true,
     val wifiOnlyDownloads: Boolean = false,
-    val smartClipboardPrompt: Boolean = true
+    val smartClipboardPrompt: Boolean = true,
+    val githubRepoSlug: String = OtaUpdateUiState.DEFAULT_GITHUB_REPO,
+    val dismissedUpdateTag: String? = null,
+    val dismissedUpdateTimestampMs: Long = 0L
 )
 
 class PreferencesRepository(private val context: Context) {
@@ -41,6 +46,9 @@ class PreferencesRepository(private val context: Context) {
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val WIFI_ONLY = booleanPreferencesKey("wifi_only")
         val SMART_CLIPBOARD = booleanPreferencesKey("smart_clipboard")
+        val GITHUB_REPO_SLUG = stringPreferencesKey("github_repo_slug")
+        val DISMISSED_UPDATE_TAG = stringPreferencesKey("dismissed_update_tag")
+        val DISMISSED_UPDATE_TS = longPreferencesKey("dismissed_update_timestamp_ms")
     }
 
     val preferencesFlow: Flow<UserPreferencesState> = context.dataStore.data.map { prefs ->
@@ -55,7 +63,10 @@ class PreferencesRepository(private val context: Context) {
             hapticFeedbackEnabled = prefs[Keys.HAPTIC_FEEDBACK] ?: true,
             notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
             wifiOnlyDownloads = prefs[Keys.WIFI_ONLY] ?: false,
-            smartClipboardPrompt = prefs[Keys.SMART_CLIPBOARD] ?: true
+            smartClipboardPrompt = prefs[Keys.SMART_CLIPBOARD] ?: true,
+            githubRepoSlug = prefs[Keys.GITHUB_REPO_SLUG] ?: OtaUpdateUiState.DEFAULT_GITHUB_REPO,
+            dismissedUpdateTag = prefs[Keys.DISMISSED_UPDATE_TAG],
+            dismissedUpdateTimestampMs = prefs[Keys.DISMISSED_UPDATE_TS] ?: 0L
         )
     }
 
@@ -98,5 +109,19 @@ class PreferencesRepository(private val context: Context) {
 
     suspend fun setWifiOnlyDownloads(enabled: Boolean) {
         context.dataStore.edit { it[Keys.WIFI_ONLY] = enabled }
+    }
+
+    suspend fun setGithubRepoSlug(slug: String) {
+        val clean = slug.trim().removePrefix("https://github.com/").trim('/')
+        if (clean.contains('/')) {
+            context.dataStore.edit { it[Keys.GITHUB_REPO_SLUG] = clean }
+        }
+    }
+
+    suspend fun recordDismissedUpdate(tagName: String, timestampMs: Long = System.currentTimeMillis()) {
+        context.dataStore.edit {
+            it[Keys.DISMISSED_UPDATE_TAG] = tagName
+            it[Keys.DISMISSED_UPDATE_TS] = timestampMs
+        }
     }
 }

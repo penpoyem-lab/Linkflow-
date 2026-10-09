@@ -73,6 +73,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -188,67 +190,81 @@ fun Modifier.springBounceClickable(
 }
 
 /**
- * Google Play Store / Material 3 Expressive Morphing Scalloped Cookie Star Loader
- * on a completely transparent background (matching the user's uploaded reference image).
+ * Material 3 Expressive Wavy-Squiggle Arc & Smooth Circular Track Loader
+ * on a completely transparent background (matching the user's uploaded reference images).
  *
  * Features:
- * - Soft sky-blue (#A8C7FA) 10-lobe scalloped cookie / wavy star shape
- * - Smooth organic lobe breathing/morphing between a rounded scalloped badge and a deeper wavy star
- * - Continuous silky rotation + spring scale pop on a pure transparent background
+ * - Two opposing open ring segments separated by clean gaps (~19° on each side)
+ * - Active segment: Thick rounded sinusoidal wavy squiggle arc (~156° span) with 4 smooth outward crests
+ *   that ripple organically along the arc while the whole indicator rotates
+ * - Opposite segment: Smooth circular track arc (~166° span) with flat/butt caps in a complementary
+ *   translucent tone
+ * - Pure transparent background (no opaque circle plate, shadow, or surface behind it)
  */
 @Composable
 fun PlayStoreScallopedLoader(
-    size: Dp = 44.dp,
-    color: Color = Color(0xFFA8C7FA),
+    size: Dp = 50.dp,
+    color: Color = Color(0xFFEBD0C7),
+    trackColor: Color = Color(0xFF5D423B),
     pullFraction: Float = 1f,
     isSpinning: Boolean = true,
     reducedMotion: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "scallop_loader")
+    val infiniteTransition = rememberInfiniteTransition(label = "expressive_wavy_arc_loader")
     val rotationDeg by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) 360f else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2200, easing = LinearEasing),
+            animation = tween(durationMillis = 1500, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "scallop_rotation"
+        label = "wavy_arc_rotation"
     )
 
-    val morphPhase by infiniteTransition.animateFloat(
+    val wavePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) (2f * PI.toFloat()) else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1350, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(durationMillis = 820, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "scallop_morph"
+        label = "wavy_arc_travel_phase"
     )
 
-    val breathScale by infiniteTransition.animateFloat(
-        initialValue = 0.93f,
-        targetValue = if (isSpinning && !reducedMotion) 1.07f else 1f,
+    val sweepBreath by infiniteTransition.animateFloat(
+        initialValue = 150f,
+        targetValue = if (isSpinning && !reducedMotion) 164f else 156f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "scallop_breath"
+        label = "wavy_arc_sweep_breath"
     )
 
     val effectiveRotation = if (isSpinning) {
         rotationDeg
     } else {
-        pullFraction * 240f
+        pullFraction * 270f
     }
 
     val effectiveScale = if (isSpinning) {
-        breathScale
+        1f
     } else {
-        pullFraction.coerceIn(0.25f, 1.05f)
+        pullFraction.coerceIn(0.32f, 1.04f)
     }
 
-    val path = remember { Path() }
+    val wavySweepDeg = if (isSpinning) {
+        sweepBreath
+    } else {
+        (pullFraction.coerceIn(0.18f, 1f) * 156f)
+    }
+
+    val gapDeg = 19f
+    val trackStartDeg = wavySweepDeg + gapDeg
+    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(38f)
+
+    val wavyPath = remember { Path() }
 
     Canvas(
         modifier = modifier
@@ -260,34 +276,62 @@ fun PlayStoreScallopedLoader(
     ) {
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
-        val baseRadius = this.size.minDimension * 0.42f
-
-        // 10-lobe scalloped cookie / wavy star matching the reference image
-        val lobes = 10
-        val waveAmplitude = baseRadius * (0.105f + 0.035f * sin(morphPhase))
-        val steps = 140
-
-        path.reset()
-        for (i in 0..steps) {
-            val theta = (i.toFloat() / steps.toFloat()) * (2.0 * PI)
-            // Secondary harmonic gives the smooth rounded cookie-scallop crests
-            val r = baseRadius +
-                waveAmplitude * cos(lobes * theta).toFloat() +
-                (waveAmplitude * 0.18f) * sin((lobes / 2) * theta + morphPhase).toFloat()
-            val x = cx + r * cos(theta).toFloat()
-            val y = cy + r * sin(theta).toFloat()
-            if (i == 0) {
-                path.moveTo(x, y)
-            } else {
-                path.lineTo(x, y)
-            }
-        }
-        path.close()
+        val minDim = this.size.minDimension
+        val strokePx = minDim * 0.122f
+        val waveAmplitudePx = minDim * 0.048f
+        val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx
 
         rotate(degrees = effectiveRotation, pivot = Offset(cx, cy)) {
+            // 1. Draw the opposite smooth circular track arc segment with clean flat/butt caps
+            if (trackSweepDeg > 5f) {
+                drawArc(
+                    color = trackColor,
+                    startAngle = trackStartDeg,
+                    sweepAngle = trackSweepDeg,
+                    useCenter = false,
+                    topLeft = Offset(cx - baseRadius, cy - baseRadius),
+                    size = Size(baseRadius * 2f, baseRadius * 2f),
+                    style = Stroke(
+                        width = strokePx,
+                        cap = StrokeCap.Butt
+                    )
+                )
+            }
+
+            // 2. Draw the sinusoidal wavy squiggle active arc segment (0..wavySweepDeg)
+            val steps = 108
+            val numWaveCycles = 4.0f // 4 prominent rounded crests matching the reference images
+            wavyPath.reset()
+
+            for (i in 0..steps) {
+                val fraction = i.toFloat() / steps.toFloat()
+                val angleDeg = fraction * wavySweepDeg
+                val angleRad = Math.toRadians(angleDeg.toDouble())
+
+                // Smoothly taper wave amplitude near the two endpoints so the flat caps align with the track radius
+                val edgeEnvelope = sin(fraction * PI).toFloat().coerceIn(0.15f, 1f)
+                val waveOffset = waveAmplitudePx * edgeEnvelope *
+                    sin((fraction * numWaveCycles * 2.0 * PI) + wavePhase).toFloat()
+
+                val r = baseRadius + waveOffset
+                val x = cx + r * cos(angleRad).toFloat()
+                val y = cy + r * sin(angleRad).toFloat()
+
+                if (i == 0) {
+                    wavyPath.moveTo(x, y)
+                } else {
+                    wavyPath.lineTo(x, y)
+                }
+            }
+
             drawPath(
-                path = path,
-                color = color
+                path = wavyPath,
+                color = color,
+                style = Stroke(
+                    width = strokePx,
+                    cap = StrokeCap.Butt,
+                    join = StrokeJoin.Round
+                )
             )
         }
     }
@@ -375,7 +419,7 @@ fun AmbientMidnightBackground(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        tokens.accentCyan.copy(alpha = if (tokens.isDark) 0.18f else 0.10f),
+                        tokens.accentCyan.copy(alpha = if (tokens.isDark) 0.22f else 0.12f),
                         Color.Transparent
                     ),
                     center = c3,
@@ -384,6 +428,33 @@ fun AmbientMidnightBackground(
                 radius = w * 0.78f * secondaryPulse,
                 center = c3
             )
+
+            // Subtle floating glass lens bokeh orbs in the ambient background
+            val orbOffsets = listOf(
+                Triple(0.16f, 0.24f, 44f),
+                Triple(0.84f, 0.18f, 32f),
+                Triple(0.76f, 0.68f, 52f),
+                Triple(0.22f, 0.74f, 38f)
+            )
+            orbOffsets.forEachIndexed { index, (bx, by, rDp) ->
+                val phaseShift = drift + index * 1.4f
+                val ox = w * bx + cos(phaseShift) * 18f
+                val oy = h * by + sin(phaseShift) * 14f
+                val rPx = rDp.dp.toPx()
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = if (tokens.isDark) 0.06f else 0.14f),
+                            tokens.accentCyan.copy(alpha = if (tokens.isDark) 0.04f else 0.06f),
+                            Color.Transparent
+                        ),
+                        center = Offset(ox, oy),
+                        radius = rPx * 1.6f
+                    ),
+                    radius = rPx * 1.6f,
+                    center = Offset(ox, oy)
+                )
+            }
         }
         content()
     }
@@ -425,13 +496,14 @@ fun LiquidGlassCard(
     val borderBrush = if (isHighlighted) {
         Brush.linearGradient(
             colors = listOf(
-                tokens.accentCyan,
-                tokens.accentBlue,
-                tokens.accentViolet,
-                tokens.accentCyan
+                Color.White.copy(alpha = 0.78f),
+                tokens.accentCyan.copy(alpha = 0.90f),
+                tokens.accentBlue.copy(alpha = 0.80f),
+                tokens.accentViolet.copy(alpha = 0.78f),
+                Color.White.copy(alpha = 0.65f)
             ),
             start = Offset(shimmerPhase, 0f),
-            end = Offset(shimmerPhase + 520f, 520f)
+            end = Offset(shimmerPhase + 540f, 540f)
         )
     } else {
         tokens.glassBorderGradient
@@ -443,10 +515,10 @@ fun LiquidGlassCard(
             scaleY = pressScale
         }
         .shadow(
-            elevation = if (isHighlighted) 18.dp else 8.dp,
+            elevation = if (isHighlighted) 20.dp else 10.dp,
             shape = shape,
-            ambientColor = tokens.accentBlue.copy(alpha = 0.28f),
-            spotColor = tokens.accentCyan.copy(alpha = 0.34f)
+            ambientColor = tokens.accentBlue.copy(alpha = if (isHighlighted) 0.42f else 0.26f),
+            spotColor = tokens.accentCyan.copy(alpha = if (isHighlighted) 0.50f else 0.32f)
         )
         .clip(shape)
         .background(
@@ -454,7 +526,8 @@ fun LiquidGlassCard(
                 Brush.verticalGradient(
                     listOf(
                         tokens.glassSurfaceElevated,
-                        tokens.glassSurface
+                        tokens.glassSurface,
+                        if (tokens.isDark) Color(0x360C142C) else Color(0xCCF1F5F9)
                     )
                 )
             } else {
@@ -462,7 +535,7 @@ fun LiquidGlassCard(
             }
         )
         .border(
-            width = if (isHighlighted) 1.5.dp else 1.dp,
+            width = if (isHighlighted) 1.5.dp else 1.1.dp,
             brush = borderBrush,
             shape = shape
         )
@@ -481,23 +554,234 @@ fun LiquidGlassCard(
     Box(
         modifier = clickableModifier
     ) {
-        // Subtle top-edge specular refraction highlight
+        // Multi-layered Liquid-Glass Specular Crown & Diagonal Caustic Sheen
+        Canvas(modifier = Modifier.matchParentSize()) {
+            val w = size.width
+            val h = size.height
+
+            // 1. Soft upper-left liquid lens refraction glow
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = if (isHighlighted) 0.14f else 0.08f),
+                        tokens.accentCyan.copy(alpha = if (isHighlighted) 0.08f else 0.04f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.18f, 0f),
+                    radius = w * 0.65f
+                ),
+                radius = w * 0.65f,
+                center = Offset(w * 0.18f, 0f)
+            )
+
+            // 2. Bottom-right ambient violet/blue depth reflection
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        tokens.accentViolet.copy(alpha = if (isHighlighted) 0.12f else 0.06f),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.85f, h),
+                    radius = w * 0.55f
+                ),
+                radius = w * 0.55f,
+                center = Offset(w * 0.85f, h)
+            )
+
+            // 3. Top-edge curved glass specular highlight bar
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = if (isHighlighted) 0.68f else 0.38f),
+                        tokens.accentCyan.copy(alpha = if (isHighlighted) 0.52f else 0.28f),
+                        Color.White.copy(alpha = if (isHighlighted) 0.62f else 0.35f),
+                        Color.Transparent
+                    )
+                ),
+                start = Offset(w * 0.07f, 1.2.dp.toPx()),
+                end = Offset(w * 0.93f, 1.2.dp.toPx()),
+                strokeWidth = 1.6.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+        content()
+    }
+}
+
+/**
+ * Reusable 3D Liquid-Glass Primary Action Button with specular top lens reflection,
+ * luminous gradient fill, and tactile spring press physics.
+ */
+@Composable
+fun LiquidGlassPrimaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    enabled: Boolean = true,
+    isDestructive: Boolean = false,
+    cornerRadius: Dp = 18.dp
+) {
+    val tokens = LocalLinkFlowTokens.current
+    val shape = RoundedCornerShape(cornerRadius)
+    val gradientColors = when {
+        !enabled -> listOf(Color(0xFF334155), Color(0xFF1E293B))
+        isDestructive -> listOf(
+            Color(0xFFEF4444).copy(alpha = 0.85f),
+            Color(0xFFDC2626).copy(alpha = 0.75f)
+        )
+        else -> listOf(
+            tokens.accentBlue.copy(alpha = 0.92f),
+            tokens.accentCyan.copy(alpha = 0.82f),
+            tokens.accentViolet.copy(alpha = 0.85f)
+        )
+    }
+
+    val borderColors = if (isDestructive) {
+        listOf(
+            Color.White.copy(alpha = 0.65f),
+            Color(0xFFFCA5A5).copy(alpha = 0.80f),
+            Color(0xFFEF4444).copy(alpha = 0.55f)
+        )
+    } else {
+        listOf(
+            Color.White.copy(alpha = 0.82f),
+            tokens.accentCyan.copy(alpha = 0.75f),
+            Color.White.copy(alpha = 0.35f)
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = if (enabled) 14.dp else 2.dp,
+                shape = shape,
+                ambientColor = if (isDestructive) tokens.errorColor else tokens.accentBlue,
+                spotColor = if (isDestructive) tokens.errorColor else tokens.accentCyan
+            )
+            .clip(shape)
+            .background(Brush.linearGradient(gradientColors))
+            .border(
+                width = 1.2.dp,
+                brush = Brush.verticalGradient(borderColors),
+                shape = shape
+            )
+            .springBounceClickable(enabled = enabled, pressedScale = 0.94f, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        // Top-edge inner glass lens specular sheen
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(1.dp)
+                .height(9.dp)
                 .align(Alignment.TopCenter)
+                .clip(RoundedCornerShape(cornerRadius))
                 .background(
-                    Brush.horizontalGradient(
+                    Brush.verticalGradient(
                         listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = if (isHighlighted) 0.42f else 0.22f),
+                            Color.White.copy(alpha = 0.38f),
                             Color.Transparent
                         )
                     )
                 )
         )
-        content()
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.2.sp
+                ),
+                color = Color.White
+            )
+        }
+    }
+}
+
+/**
+ * Translucent Frosted Liquid-Glass Secondary Pill Button with prismatic rim border
+ * and top specular highlight.
+ */
+@Composable
+fun LiquidGlassSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    accentTint: Color = LocalLinkFlowTokens.current.accentCyan,
+    cornerRadius: Dp = 18.dp
+) {
+    val tokens = LocalLinkFlowTokens.current
+    val shape = RoundedCornerShape(cornerRadius)
+    Box(
+        modifier = modifier
+            .shadow(
+                elevation = 8.dp,
+                shape = shape,
+                ambientColor = accentTint.copy(alpha = 0.22f),
+                spotColor = accentTint.copy(alpha = 0.30f)
+            )
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (tokens.isDark) 0.14f else 0.78f),
+                        accentTint.copy(alpha = if (tokens.isDark) 0.14f else 0.18f),
+                        tokens.glassSurfaceElevated
+                    )
+                )
+            )
+            .border(
+                width = 1.1.dp,
+                brush = Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.55f),
+                        accentTint.copy(alpha = 0.65f),
+                        Color.White.copy(alpha = 0.22f)
+                    )
+                ),
+                shape = shape
+            )
+            .springBounceClickable(pressedScale = 0.94f, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = accentTint,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = if (tokens.isDark) Color.White else MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
@@ -626,21 +910,24 @@ fun PlayStorePullToRefreshBox(
             content()
         }
 
-        // Google Play Store-style Scalloped Cookie Star on a Pure Transparent Background
+        // Material 3 Expressive Wavy-Squiggle Arc + Smooth Circular Track Arc on a Pure Transparent Background
         val visibilityFraction = (animatedPull / triggerThresholdPx).coerceIn(0f, 1.15f)
         if (visibilityFraction > 0.04f || isRefreshing) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .background(Color.Transparent)
                     .graphicsLayer {
-                        translationY = (animatedPull * 0.48f) + 22f
+                        translationY = (animatedPull * 0.50f) + 24f
                         alpha = if (isRefreshing) 1f else (visibilityFraction * 1.25f).coerceIn(0f, 1f)
-                    },
+                    }
+                    .testTag("pull_to_refresh_wavy_loader"),
                 contentAlignment = Alignment.Center
             ) {
                 PlayStoreScallopedLoader(
-                    size = 46.dp,
-                    color = Color(0xFFA8C7FA),
+                    size = 52.dp,
+                    color = Color(0xFFEBD0C7),
+                    trackColor = Color(0xFF5D423B),
                     pullFraction = visibilityFraction,
                     isSpinning = isRefreshing
                 )

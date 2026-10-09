@@ -84,4 +84,40 @@ class ExampleRobolectricTest {
         assertEquals(1, all.size)
         assertEquals("renamed_video.mp4", all.first().fileName)
     }
+
+    @Test
+    fun `parseGithubReleaseJson selects matching APK asset and ignores zip or draft releases`() {
+        val sampleJson = """
+            {
+              "tag_name": "v1.8.0",
+              "name": "Version 1.8 is ready to install",
+              "draft": false,
+              "prerelease": false,
+              "html_url": "https://github.com/penpoyem-lab/Linkflow-/releases/tag/v1.8.0",
+              "published_at": "2026-10-09T04:00:00Z",
+              "body": "We've improved performance and stability.\n\n### Top Features\n- Faster Instagram & TikTok extraction\n- Liquid-Glass navigation bar\n- SHA-256 verified OTA updates",
+              "assets": [
+                {
+                  "name": "source-code.zip",
+                  "browser_download_url": "https://github.com/penpoyem-lab/Linkflow-/releases/download/v1.8.0/source.zip",
+                  "size": 102400,
+                  "content_type": "application/zip"
+                },
+                {
+                  "name": "linkflow-release-v1.8.0.apk",
+                  "browser_download_url": "https://github.com/penpoyem-lab/Linkflow-/releases/download/v1.8.0/linkflow-release-v1.8.0.apk",
+                  "size": 18450000,
+                  "content_type": "application/vnd.android.package-archive",
+                  "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = com.example.data.service.AppUpdateManager.parseGithubReleaseJson(sampleJson, "linkflow", "1.0")
+        assertNotNull(parsed)
+        assertEquals("1.8.0", parsed?.cleanVersionName)
+        assertEquals("linkflow-release-v1.8.0.apk", parsed?.apkAsset?.name)
+        assertEquals(3, parsed?.topFeatures?.size)
+    }
 }
