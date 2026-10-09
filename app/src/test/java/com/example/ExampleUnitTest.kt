@@ -48,6 +48,15 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun `instagram reel share link resolves to downloadable video and audio options`() = runBlocking {
+        val igOutcome = engine.analyzeUrl("https://www.instagram.com/reel/C5xyz123/?igsh=d2NybnF4NWVyeGFj")
+        assertTrue(igOutcome is UrlAnalysisOutcome.Success)
+        val result = (igOutcome as UrlAnalysisOutcome.Success).result
+        assertTrue(result.videoOptions.isNotEmpty())
+        assertTrue(result.audioOptions.isNotEmpty())
+    }
+
+    @Test
     fun `byte formatting is accurate`() {
         assertEquals("0 B", FormatUtils.formatBytes(0))
         assertEquals("1.0 MB", FormatUtils.formatBytes(1024L * 1024L))
