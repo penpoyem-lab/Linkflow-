@@ -19,3 +19,57 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+================================================================================
+THIRD-PARTY OPEN-SOURCE SOFTWARE NOTICES & ATTRIBUTIONS
+================================================================================
+
+LinkFlow incorporates and depends on the following open-source libraries,
+frameworks, and typographic assets. Full license texts for Apache License 2.0
+and SIL Open Font License 1.1 apply to their respective components:
+
+1. Android Jetpack & AndroidX Libraries (Core KTX, Activity Compose, Lifecycle,
+   Navigation Compose, Room SQLite, DataStore Preferences, WorkManager)
+   Copyright (c) The Android Open Source Project
+   Licensed under the Apache License, Version 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+2. Jetpack Compose UI, Material Design 3 & Material Icons Extended
+   Copyright (c) The Android Open Source Project
+   Licensed under the Apache License, Version 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+3. Kotlin Standard Library, Coroutines & Kotlinx Serialization
+   Copyright (c) JetBrains s.r.o. and Kotlin Programming Language contributors
+   Licensed under the Apache License, Version 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+4. Square OkHttp 4 Networking & Byte-Stream Client
+   Copyright (c) Square, Inc.
+   Licensed under the Apache License, Version 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+5. Coil (Coroutine Image Loader for Jetpack Compose)
+   Copyright (c) Coil Contributors
+   Licensed under the Apache License, Version 2.0
+   https://www.apache.org/licenses/LICENSE-2.0
+
+6. Robolectric & JUnit 4 Testing Framework
+   Copyright (c) Robolectric Contributors & JUnit Team
+   Licensed under the MIT License / Eclipse Public License 1.0
+
+7. Bundled Typography (Space Grotesk, Plus Jakarta Sans, JetBrains Mono)
+   - Space Grotesk: Copyright (c) Florian Karsten (SIL Open Font License 1.1)
+   - Plus Jakarta Sans: Copyright (c) Tokotype (SIL Open Font License 1.1)
+   - JetBrains Mono: Copyright (c) JetBrains s.r.o. (SIL Open Font License 1.1)
+
+================================================================================
+AUTHORIZED MEDIA & COMPLIANCE DISCLAIMER
+================================================================================
+
+LinkFlow is designed exclusively for downloading, inspecting, and managing media
+streams that the user owns, has explicit permission to download, or that are
+distributed under open licenses (such as Creative Commons, Public Domain, or
+Internet Archive open collections). Users are solely responsible for complying
+with applicable copyright laws and the Terms of Service of any third-party
+platform accessed through this software.

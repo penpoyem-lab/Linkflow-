@@ -412,7 +412,7 @@ private fun QualityOptionRow(
     val is4K = option.badge == "4K" || option.badge == "2K"
     val isHD = option.badge == "HD" || option.badge == "1080p HD"
     val isRecommended = option.badge == "Recommended"
-    val isAudio = option.format == MediaFormat.MP3
+    val isAudio = !option.format.isVideo
 
     Row(
         modifier = Modifier

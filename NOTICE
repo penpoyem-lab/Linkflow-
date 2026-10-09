@@ -1,0 +1,14 @@
+LinkFlow
+Copyright (c) 2026 LinkFlow Contributors
+
+This product includes software developed by the LinkFlow Contributors
+and open-source components provided by:
+
+- The Android Open Source Project (https://source.android.com/)
+- JetBrains s.r.o. (https://www.jetbrains.com/)
+- Square, Inc. (https://square.github.io/okhttp/)
+- Coil Contributors (https://coil-kt.github.io/coil/)
+- Tokotype & Florian Karsten (SIL Open Font License 1.1)
+
+Licensed under the MIT License (SPDX-License-Identifier: MIT).
+See the LICENSE file in the root directory for complete licensing terms.

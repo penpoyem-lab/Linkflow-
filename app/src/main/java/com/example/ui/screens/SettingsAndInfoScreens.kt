@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -55,11 +56,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.local.UserPreferencesState
 import com.example.data.model.MediaFormat
 import com.example.data.model.ProviderStatusInfo
@@ -1000,18 +1004,29 @@ fun OpenSourceLicenseDialog(
         },
         title = {
             Text(
-                text = "$brandName License & Notices",
+                text = "$brandName License & Open-Source Notices",
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
             )
         },
         text = {
             LazyColumn(
-                modifier = Modifier.height(320.dp),
+                modifier = Modifier.height(360.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item {
+                    Image(
+                        painter = painterResource(id = R.drawable.img_linkflow_hero_banner_1791571240767),
+                        contentDescription = "$brandName License Banner",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(96.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+                }
+                item {
                     Text(
-                        text = "MIT License\nCopyright (c) 2026 $brandName Contributors",
+                        text = "MIT License (SPDX-License-Identifier: MIT)\nCopyright (c) 2026 $brandName Contributors",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = tokens.accentCyan
                     )
@@ -1020,7 +1035,7 @@ fun OpenSourceLicenseDialog(
                     Text(
                         text = "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\n" +
                             "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\n" +
-                            "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.",
+                            "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -1029,19 +1044,37 @@ fun OpenSourceLicenseDialog(
                 }
                 item {
                     Text(
-                        text = "Third-Party Open Source Libraries",
+                        text = "Third-Party Open-Source Software Notices",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = tokens.accentCyan
                     )
                 }
                 item {
                     Text(
-                        text = "• AndroidX & Jetpack Compose — Apache License 2.0\n" +
-                            "• Room SQLite & Jetpack DataStore — Apache License 2.0\n" +
-                            "• Square OkHttp 4 — Apache License 2.0\n" +
+                        text = "• AndroidX Core, Lifecycle, Activity & Navigation Compose — Apache License 2.0\n" +
+                            "• Android Jetpack Room SQLite, DataStore & WorkManager — Apache License 2.0\n" +
+                            "• Android MediaExtractor & MediaMuxer Demuxing Pipeline — Apache License 2.0\n" +
+                            "• Square OkHttp 4 HTTP/2 & Byte-Range Client — Apache License 2.0\n" +
                             "• Coil Compose Image Loader — Apache License 2.0\n" +
-                            "• Kotlin Coroutines & Serialization — Apache License 2.0\n" +
-                            "• Space Grotesk, Plus Jakarta Sans & JetBrains Mono — SIL Open Font License 1.1",
+                            "• JetBrains Kotlin Coroutines & Serialization — Apache License 2.0\n" +
+                            "• Space Grotesk, Plus Jakarta Sans & JetBrains Mono — SIL Open Font License 1.1\n" +
+                            "• JUnit 4 & Robolectric Test Suite — EPL 1.0 / MIT License",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                item {
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                }
+                item {
+                    Text(
+                        text = "Authorized Media & Copyright Compliance",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = tokens.accentCyan
+                    )
+                }
+                item {
+                    Text(
+                        text = "$brandName is designed for user-owned media, Creative Commons streams, Public Domain collections, and authorized direct media links. Users are responsible for complying with applicable copyright laws and platform Terms of Service.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -1072,16 +1105,25 @@ fun AboutLinkFlowDialog(
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Image(
+                    painter = painterResource(id = R.drawable.img_linkflow_hero_banner_1791571240767),
+                    contentDescription = "$brandName Studio Banner",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(104.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                )
                 Text(
                     text = "Premium Liquid-Glass Video & Audio Downloader for Android.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = "• Multi-Resolution MP4 (144p to 4K Ultra)\n" +
-                        "• Studio MP3 Bitrate Selection (128k / 192k / 320k)\n" +
-                        "• Universal Social Media Share Target\n" +
-                        "• Real-Time HTTP Byte-Stream Queue Engine\n" +
+                    text = "• Multi-Resolution MP4 & WebM (144p to 4K Ultra)\n" +
+                        "• Genuine MP3 / M4A / WAV Audio & AAC Demuxing\n" +
+                        "• YouTube, Instagram, Facebook, TikTok & Archive.org Support\n" +
+                        "• Real-Time HTTP Byte-Stream Queue Engine with Resume\n" +
                         "• Licensed under the MIT Open-Source License",
                     style = MaterialTheme.typography.bodySmall
                 )

@@ -142,7 +142,80 @@ class ExampleRobolectricTest {
                             .body(okhttp3.ResponseBody.create(null, json))
                             .build()
                     }
-                    urlStr.contains("archive.org/metadata/") -> {
+                    urlStr.contains("youtubei/v1/player") -> {
+                        if (urlStr.contains("restricted") || req.body?.let { body ->
+                                val buf = okio.Buffer()
+                                body.writeTo(buf)
+                                buf.readUtf8().contains("RESTRICTED_VID")
+                            } == true
+                        ) {
+                            val restrictedJson = """{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"Sign in to confirm your age"}}"""
+                            okhttp3.Response.Builder()
+                                .request(req)
+                                .protocol(okhttp3.Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .header("Content-Type", "application/json")
+                                .body(okhttp3.ResponseBody.create(null, restrictedJson))
+                                .build()
+                        } else {
+                            val playerJson = """
+                                {
+                                  "playabilityStatus": {"status": "OK"},
+                                  "videoDetails": {
+                                    "videoId": "dQw4w9WgXcQ",
+                                    "title": "Official YouTube Test Video",
+                                    "lengthSeconds": "212",
+                                    "author": "Official Channel"
+                                  },
+                                  "streamingData": {
+                                    "formats": [
+                                      {
+                                        "itag": 18,
+                                        "url": "https://rr1---sn-test.googlevideo.com/videoplayback?itag=18&c=ANDROID_VR",
+                                        "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+                                        "width": 640,
+                                        "height": 360,
+                                        "contentLength": "9437184",
+                                        "qualityLabel": "360p"
+                                      }
+                                    ],
+                                    "adaptiveFormats": [
+                                      {
+                                        "itag": 137,
+                                        "url": "https://rr1---sn-test.googlevideo.com/videoplayback?itag=137&c=ANDROID_VR",
+                                        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+                                        "width": 1920,
+                                        "height": 1080,
+                                        "contentLength": "28311552",
+                                        "qualityLabel": "1080p"
+                                      },
+                                      {
+                                        "itag": 140,
+                                        "url": "https://rr1---sn-test.googlevideo.com/videoplayback?itag=140&c=ANDROID_VR",
+                                        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                                        "bitrate": 128000,
+                                        "contentLength": "3407872"
+                                      }
+                                    ]
+                                  }
+                                }
+                            """.trimIndent()
+                            okhttp3.Response.Builder()
+                                .request(req)
+                                .protocol(okhttp3.Protocol.HTTP_1_1)
+                                .code(200)
+                                .message("OK")
+                                .header("Content-Type", "application/json")
+                                .body(okhttp3.ResponseBody.create(null, playerJson))
+                                .build()
+                        }
+                    }
+                    urlStr.contains("archive.org/metadata/") ||
+                        urlStr.contains("pipedapi") ||
+                        urlStr.contains("inv.tux.pizza") ||
+                        urlStr.contains("invidious") ||
+                        urlStr.contains("cobalt") -> {
                         okhttp3.Response.Builder()
                             .request(req)
                             .protocol(okhttp3.Protocol.HTTP_1_1)
@@ -192,7 +265,7 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertTrue(ssrfOutcome is com.example.data.service.UrlAnalysisOutcome.Error)
         assertEquals("ERR_SSRF_BLOCKED", (ssrfOutcome as com.example.data.service.UrlAnalysisOutcome.Error).errorCode)
 
-        // 4 & 5. YouTube URL detection (watch, youtu.be, Shorts, share links) & Authorized Metadata Preview / Limitation Notice
+        // 4 & 5. YouTube URL detection (watch, youtu.be, Shorts, share links), Playable Stream Resolution, & Restricted Fallback
         assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
         assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://youtu.be/dQw4w9WgXcQ?si=share123"))
         assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://www.youtube.com/shorts/dQw4w9WgXcQ"))
@@ -202,11 +275,18 @@ class ExampleRobolectricTest {
         val ytResult = (ytOutcome as com.example.data.service.UrlAnalysisOutcome.Success).result
         assertEquals("YouTube", ytResult.providerName)
         assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", ytResult.externalLaunchUrl)
-        // Standard YouTube video without CC archive match must NOT pretend to be a direct MP4/MP3 stream
-        org.junit.Assert.assertFalse(ytResult.isAuthorizedStream)
-        org.junit.Assert.assertTrue(ytResult.videoOptions.isEmpty())
-        org.junit.Assert.assertTrue(ytResult.audioOptions.isEmpty())
-        assertNotNull(ytResult.authorizationLimitationNotice)
+        org.junit.Assert.assertTrue(ytResult.isAuthorizedStream)
+        org.junit.Assert.assertTrue(ytResult.videoOptions.isNotEmpty())
+        org.junit.Assert.assertTrue(ytResult.audioOptions.isNotEmpty())
+
+        // Restricted YouTube video that cannot be downloaded falls back cleanly to Metadata Preview
+        val restrictedYtOutcome = engine.analyzeUrl("https://www.youtube.com/watch?v=RESTRICTED_VID")
+        org.junit.Assert.assertTrue(restrictedYtOutcome is com.example.data.service.UrlAnalysisOutcome.Success)
+        val restrictedYtResult = (restrictedYtOutcome as com.example.data.service.UrlAnalysisOutcome.Success).result
+        org.junit.Assert.assertFalse(restrictedYtResult.isAuthorizedStream)
+        org.junit.Assert.assertTrue(restrictedYtResult.videoOptions.isEmpty())
+        org.junit.Assert.assertTrue(restrictedYtResult.audioOptions.isEmpty())
+        assertNotNull(restrictedYtResult.authorizationLimitationNotice)
 
         // 6. HTML webpage incorrectly supplied as a media URL
         val htmlFile = java.io.File.createTempFile("webpage_error", ".mp4")

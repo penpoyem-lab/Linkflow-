@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,11 +72,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.local.DownloadTaskEntity
 import com.example.data.model.DownloadJobState
 import com.example.data.model.MediaFormat
@@ -331,20 +335,15 @@ fun LibraryScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(
+                                Image(
+                                    painter = painterResource(id = R.drawable.img_empty_library_art_1791571260082),
+                                    contentDescription = "Empty media library illustration",
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(CircleShape)
-                                        .background(tokens.accentViolet.copy(alpha = 0.18f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.VideoLibrary,
-                                        contentDescription = null,
-                                        tint = tokens.accentCyan,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
+                                        .fillMaxWidth()
+                                        .height(160.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                )
                                 Text(
                                     text = if (completedFiles.isEmpty()) "No Downloaded Media Yet" else "No Matching Library Files",
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),

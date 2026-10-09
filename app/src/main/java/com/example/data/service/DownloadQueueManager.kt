@@ -515,7 +515,7 @@ class DownloadQueueManager(
             runCatching {
                 when (val outcome = analyzerEngine.analyzeUrl(task.sourceUrl)) {
                     is UrlAnalysisOutcome.Success -> {
-                        val isAudioFormat = task.format.equals(MediaFormat.MP3.name, ignoreCase = true)
+                        val isAudioFormat = !runCatching { MediaFormat.valueOf(task.format.uppercase()).isVideo }.getOrDefault(true)
                         val primaryPool = if (isAudioFormat) outcome.result.audioOptions else outcome.result.videoOptions
                         val secondaryPool = if (isAudioFormat) outcome.result.videoOptions else outcome.result.audioOptions
 
