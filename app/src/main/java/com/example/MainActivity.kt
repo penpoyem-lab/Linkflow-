@@ -294,6 +294,7 @@ fun LinkFlowApp(
                                                 )
                                             },
                                             onClearCompleted = viewModel::clearCompletedDownloads,
+                                            onClearFailed = viewModel::clearFailedDownloads,
                                             onExploreHome = { viewModel.selectTab(PrimaryTab.HOME) }
                                         )
                                     }

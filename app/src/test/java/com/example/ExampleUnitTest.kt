@@ -119,4 +119,52 @@ class ExampleUnitTest {
         assertEquals(3, parsed.topFeatures.size)
         assertFalse(parsed.isMandatory)
     }
+
+    @Test
+    fun `MediaStreamValidator detects HTML webpages and social landing URLs vs binary media streams`() {
+        assertTrue(
+            com.example.data.service.MediaStreamValidator.isLikelyWebpageLandingUrl(
+                "https://www.instagram.com/reel/C5xyz123/"
+            )
+        )
+        assertTrue(
+            com.example.data.service.MediaStreamValidator.isLikelyWebpageLandingUrl(
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            )
+        )
+        assertFalse(
+            com.example.data.service.MediaStreamValidator.isLikelyWebpageLandingUrl(
+                "https://scontent.cdninstagram.com/v/t66.30100-16/10000000_n.mp4?_nc_cat=101"
+            )
+        )
+        assertTrue(
+            com.example.data.service.MediaStreamValidator.isInvalidNonMediaContentType("text/html; charset=utf-8")
+        )
+        assertFalse(
+            com.example.data.service.MediaStreamValidator.isInvalidNonMediaContentType("video/mp4")
+        )
+    }
+
+    @Test
+    fun `DownloadErrorHandler classifies HTTP 403 and HTML webpage responses with actionable recovery`() {
+        val err403 = com.example.data.service.DownloadErrorHandler.classify(
+            java.io.IOException("HTTP 403: Unable to fetch media stream"),
+            "YouTube"
+        )
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.FORBIDDEN_OR_EXPIRED_URL_403,
+            err403.category
+        )
+        assertTrue(err403.shouldReResolveSourceUrl)
+
+        val errHtml = com.example.data.service.DownloadErrorHandler.classify(
+            java.io.IOException("URL returned an HTML webpage instead of a binary MP4/MP3 stream"),
+            "Instagram"
+        )
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.HTML_WEBPAGE_INSTEAD_OF_MEDIA,
+            errHtml.category
+        )
+        assertTrue(errHtml.shouldReResolveSourceUrl)
+    }
 }

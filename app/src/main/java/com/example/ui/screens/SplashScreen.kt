@@ -269,7 +269,7 @@ fun AnimatedSplashScreen(
             contentAlignment = Alignment.Center
         ) {
             com.example.ui.components.PlayStoreScallopedLoader(
-                size = 46.dp,
+                size = 42.dp,
                 color = Color(0xFFEBD0C7),
                 trackColor = Color(0xFF5D423B),
                 isSpinning = true,

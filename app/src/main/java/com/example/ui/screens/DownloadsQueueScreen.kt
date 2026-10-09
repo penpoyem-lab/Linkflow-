@@ -90,6 +90,7 @@ fun DownloadsQueueScreen(
     onPlayFile: (DownloadTaskEntity) -> Unit,
     onShareFile: (DownloadTaskEntity) -> Unit,
     onClearCompleted: () -> Unit,
+    onClearFailed: () -> Unit = {},
     onExploreHome: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
@@ -161,20 +162,38 @@ fun DownloadsQueueScreen(
                             )
                         }
 
-                        if (completedList.isNotEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(tokens.glassSurfaceElevated)
-                                    .springBounceClickable { onClearCompleted() }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
-                                    .testTag("clear_completed_button")
-                            ) {
-                                Text(
-                                    text = "Clear Done",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = tokens.accentCyan
-                                )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (failedOrCancelledList.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(tokens.errorColor.copy(alpha = 0.16f))
+                                        .springBounceClickable { onClearFailed() }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .testTag("clear_failed_button")
+                                ) {
+                                    Text(
+                                        text = "Clear Failed",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = tokens.errorColor
+                                    )
+                                }
+                            }
+                            if (completedList.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .background(tokens.glassSurfaceElevated)
+                                        .springBounceClickable { onClearCompleted() }
+                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .testTag("clear_completed_button")
+                                ) {
+                                    Text(
+                                        text = "Clear Done",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = tokens.accentCyan
+                                    )
+                                }
                             }
                         }
                     }
@@ -533,8 +552,15 @@ private fun DownloadQueueItemCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
+                    val transferSummaryText = when {
+                        isFailedOrCancelled -> "${task.providerName} • Tap Retry to re-resolve fresh stream"
+                        task.totalBytes > 0L -> "${FormatUtils.formatBytes(task.downloadedBytes)} / ${FormatUtils.formatBytes(task.totalBytes)} • ${task.providerName}"
+                        task.downloadedBytes > 0L -> "${FormatUtils.formatBytes(task.downloadedBytes)} streamed • ${task.providerName}"
+                        else -> "${ stateEnum.displayName } • ${task.providerName}"
+                    }
+
                     Text(
-                        text = "${FormatUtils.formatBytes(task.downloadedBytes)} / ${FormatUtils.formatBytes(task.totalBytes)} • ${task.providerName}",
+                        text = transferSummaryText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

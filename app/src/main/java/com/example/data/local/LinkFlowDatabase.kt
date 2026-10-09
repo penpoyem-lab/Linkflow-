@@ -36,6 +36,9 @@ interface LinkFlowDao {
     @Query("DELETE FROM download_tasks WHERE state = 'COMPLETED'")
     suspend fun clearCompletedDownloads()
 
+    @Query("DELETE FROM download_tasks WHERE state IN ('FAILED', 'CANCELLED')")
+    suspend fun clearFailedOrCancelledDownloads()
+
     @Query("DELETE FROM download_tasks")
     suspend fun clearAllDownloads()
 

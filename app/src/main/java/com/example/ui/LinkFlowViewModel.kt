@@ -119,7 +119,21 @@ class LinkFlowViewModel(
     val providerAdapters: List<ProviderStatusInfo> = analyzerEngine.providerAdapters
 
     init {
+        cleanupStaleZeroByteDownloadsOnStartup()
         refreshStorageMetrics()
+    }
+
+    private fun cleanupStaleZeroByteDownloadsOnStartup() {
+        viewModelScope.launch {
+            runCatching {
+                val dir = queueManager.getDownloadsDirectory()
+                dir.listFiles()?.forEach { file ->
+                    if (file.name.endsWith(".part") || file.length() == 0L) {
+                        runCatching { file.delete() }
+                    }
+                }
+            }
+        }
     }
 
     fun completeSplash() {
@@ -451,6 +465,14 @@ class LinkFlowViewModel(
             dao.clearCompletedDownloads()
             refreshStorageMetrics()
             showToast("Cleared completed history")
+        }
+    }
+
+    fun clearFailedDownloads() {
+        viewModelScope.launch {
+            dao.clearFailedOrCancelledDownloads()
+            refreshStorageMetrics()
+            showToast("Cleared failed & cancelled tasks")
         }
     }
 

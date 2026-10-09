@@ -206,12 +206,14 @@ fun Modifier.springBounceClickable(
  */
 @Composable
 fun PlayStoreScallopedLoader(
-    size: Dp = 50.dp,
+    size: Dp = 44.dp,
     color: Color = Color(0xFFEBD0C7),
     trackColor: Color = Color(0xFF5D423B),
     pullFraction: Float = 1f,
     isSpinning: Boolean = true,
     reducedMotion: Boolean = false,
+    strokeRatio: Float = 0.056f,
+    waveAmplitudeRatio: Float = 0.036f,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "expressive_wavy_arc_loader")
@@ -287,7 +289,7 @@ fun PlayStoreScallopedLoader(
     }
 
     // Two clean gaps separating the wavy arc and the smooth circular track arc
-    val gapDeg = 19f
+    val gapDeg = 16f
     val trackStartDeg = wavySweepDeg + gapDeg
     val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(18f)
 
@@ -305,9 +307,10 @@ fun PlayStoreScallopedLoader(
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
         val minDim = this.size.minDimension
-        val strokePx = minDim * 0.118f
-        val waveAmplitudePx = minDim * 0.046f
-        val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx
+        // Ultra-slim, crisp stroke width (~2.4dp on a 44dp loader)
+        val strokePx = (minDim * strokeRatio).coerceAtLeast(1.75.dp.toPx())
+        val waveAmplitudePx = minDim * waveAmplitudeRatio
+        val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx - 1.dp.toPx()
 
         rotate(degrees = effectiveRotation, pivot = Offset(cx, cy)) {
             // 1. Draw the opposite smooth circular track arc segment with flat/butt caps
@@ -327,10 +330,10 @@ fun PlayStoreScallopedLoader(
             }
 
             // 2. Draw the sinusoidal wavy squiggle active arc segment (0..wavySweepDeg)
-            // Keep angular wavelength constant (~33.5° per full wave cycle) so expanding from
-            // 26° to 272° smoothly reveals 1 -> 8 rounded wave crests just like the reference video
-            val degreesPerWave = 33.5f
-            val steps = (wavySweepDeg * 0.85f).roundToInt().coerceIn(32, 180)
+            // Keep angular wavelength constant (~32° per full wave cycle) so expanding from
+            // 26° to 272° smoothly reveals 1 -> 8.5 slender rounded wave crests
+            val degreesPerWave = 32f
+            val steps = (wavySweepDeg * 0.95f).roundToInt().coerceIn(40, 200)
             wavyPath.reset()
 
             for (i in 0..steps) {
@@ -338,9 +341,9 @@ fun PlayStoreScallopedLoader(
                 val angleDeg = fraction * wavySweepDeg
                 val angleRad = Math.toRadians(angleDeg.toDouble())
 
-                // Taper wave amplitude gently at the very tips so the rounded caps sit cleanly on the ring
+                // Taper wave amplitude gently at the very tips so the slim rounded caps sit cleanly on the ring
                 val tipAngleDist = minOf(angleDeg, wavySweepDeg - angleDeg)
-                val edgeEnvelope = (tipAngleDist / 12f).coerceIn(0.22f, 1f)
+                val edgeEnvelope = (tipAngleDist / 10f).coerceIn(0.18f, 1f)
 
                 val waveCyclesAtAngle = angleDeg / degreesPerWave
                 val waveOffset = waveAmplitudePx * edgeEnvelope *
@@ -958,7 +961,7 @@ fun PlayStorePullToRefreshBox(
                 contentAlignment = Alignment.Center
             ) {
                 PlayStoreScallopedLoader(
-                    size = 52.dp,
+                    size = 44.dp,
                     color = Color(0xFFEBD0C7),
                     trackColor = Color(0xFF5D423B),
                     pullFraction = visibilityFraction,

@@ -193,10 +193,11 @@ fun ActiveDownloadProgressModal(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                val sizeSubtitle = if (task.totalBytes > 0) {
-                    "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} of ${FormatUtils.formatBytes(task.totalBytes)}"
-                } else {
-                    "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)}"
+                val sizeSubtitle = when {
+                    isFailedOrCancelled -> "${task.fileName} • ${task.providerName}"
+                    task.totalBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} of ${FormatUtils.formatBytes(task.totalBytes)}"
+                    task.downloadedBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} streamed"
+                    else -> "${task.fileName} • Preparing stream…"
                 }
                 Text(
                     text = sizeSubtitle,

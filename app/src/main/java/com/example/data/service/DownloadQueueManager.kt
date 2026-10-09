@@ -173,14 +173,24 @@ class DownloadQueueManager(
             val current = dao.getDownloadById(jobId) ?: return@launch
             current.localFilePath?.let { path ->
                 runCatching { File(path).delete() }
+                runCatching { File("$path.part").delete() }
+            }
+            // Clear stale/expired targetDownloadUrl if it differs from sourceUrl so buildOrderedCandidateStreamUrls
+            // places fresh re-resolved CDN URLs first instead of repeating the expired/forbidden URL!
+            val resetTargetUrl = if (current.sourceUrl.isNotBlank() && current.sourceUrl != current.targetDownloadUrl) {
+                ""
+            } else {
+                current.targetDownloadUrl
             }
             dao.upsertDownload(
                 current.copy(
+                    targetDownloadUrl = resetTargetUrl,
                     state = DownloadJobState.QUEUED.name,
                     progressPercent = 0,
                     downloadedBytes = 0L,
                     speedBytesPerSec = 0L,
                     etaSeconds = -1L,
+                    localFilePath = null,
                     errorMessage = null,
                     updatedAt = System.currentTimeMillis()
                 )
@@ -203,24 +213,38 @@ class DownloadQueueManager(
         if (activeJobs.containsKey(jobId)) return
 
         val job = scope.launch {
+            val tempFilesToClean = mutableListOf<File>()
             try {
                 var task = dao.getDownloadById(jobId) ?: return@launch
                 val destinationFile = File(getDownloadsDirectory(), task.fileName)
+                val partFile = File(getDownloadsDirectory(), "${task.fileName}.part")
+                tempFilesToClean.add(partFile)
 
                 if (task.downloadedBytes == 0L) {
                     task = task.copy(
-                        state = DownloadJobState.PREPARING.name,
+                        state = DownloadJobState.ANALYZING.name,
                         updatedAt = System.currentTimeMillis()
                     )
                     dao.upsertDownload(task)
                 }
 
                 // Resolve candidate download URLs so MP4/MP3 streams never fail due to expired CDN tokens or HTML wrappers
-                val candidateUrls = buildOrderedCandidateStreamUrls(task)
+                val (candidateUrls, refreshedCompanionAudio) = buildOrderedCandidateStreamUrls(task)
+                if (candidateUrls.isEmpty()) {
+                    throw IOException("Could not resolve a valid direct media stream from ${task.providerName}")
+                }
+
+                task = task.copy(
+                    state = DownloadJobState.PREPARING.name,
+                    targetDownloadUrl = candidateUrls.first(),
+                    companionAudioUrl = refreshedCompanionAudio ?: task.companionAudioUrl,
+                    errorMessage = null,
+                    updatedAt = System.currentTimeMillis()
+                )
+                dao.upsertDownload(task)
 
                 task = task.copy(
                     state = DownloadJobState.DOWNLOADING.name,
-                    localFilePath = destinationFile.absolutePath,
                     errorMessage = null,
                     updatedAt = System.currentTimeMillis()
                 )
@@ -234,8 +258,8 @@ class DownloadQueueManager(
                     try {
                         if (attemptIdx > 0) {
                             // Reset partial file when switching to a fresh candidate stream URL
-                            if (destinationFile.exists()) {
-                                runCatching { destinationFile.delete() }
+                            if (partFile.exists()) {
+                                runCatching { partFile.delete() }
                             }
                             task = (dao.getDownloadById(jobId) ?: task).copy(
                                 targetDownloadUrl = candidateUrl,
@@ -248,25 +272,38 @@ class DownloadQueueManager(
 
                         executeRealHttpStreamDownload(
                             task = task.copy(targetDownloadUrl = candidateUrl),
-                            destinationFile = destinationFile
+                            destinationFile = partFile
                         )
 
                         if (!isActive || pausedFlags[jobId] == true) return@launch
 
-                        if (destinationFile.exists() && destinationFile.length() > 512L && !isHtmlErrorPageFile(destinationFile)) {
+                        val validation = MediaStreamValidator.validateDownloadedMediaFile(partFile)
+                        if (validation.isValid) {
+                            if (destinationFile.exists()) {
+                                runCatching { destinationFile.delete() }
+                            }
+                            val moved = partFile.renameTo(destinationFile)
+                            if (!moved) {
+                                partFile.copyTo(destinationFile, overwrite = true)
+                                partFile.delete()
+                            }
                             downloadSucceeded = true
                             break
                         } else {
-                            throw IOException("Stream returned invalid or HTML payload instead of binary media")
+                            runCatching { partFile.delete() }
+                            throw IOException(validation.reason)
                         }
                     } catch (ce: CancellationException) {
                         throw ce
                     } catch (e: Exception) {
+                        runCatching { if (partFile.exists() && partFile.length() == 0L) partFile.delete() }
                         lastError = e
                     }
                 }
 
                 if (!downloadSucceeded) {
+                    runCatching { if (partFile.exists()) partFile.delete() }
+                    runCatching { if (destinationFile.exists() && destinationFile.length() == 0L) destinationFile.delete() }
                     throw lastError ?: IOException("Unable to download MP4/MP3 stream from any mirror")
                 }
 
@@ -291,13 +328,16 @@ class DownloadQueueManager(
 
                     val tempAudioFile = File(getDownloadsDirectory(), "${task.jobId}_companion_audio.m4a")
                     val tempMuxedFile = File(getDownloadsDirectory(), "${task.jobId}_muxed_output.mp4")
+                    tempFilesToClean.add(tempAudioFile)
+                    tempFilesToClean.add(tempMuxedFile)
                     try {
                         downloadRawStreamToFile(
                             targetUrl = companionAudio,
                             sourceUrl = task.sourceUrl,
                             outputFile = tempAudioFile
                         )
-                        if (tempAudioFile.exists() && tempAudioFile.length() > 512L && !isHtmlErrorPageFile(tempAudioFile)) {
+                        val audioValidation = MediaStreamValidator.validateDownloadedMediaFile(tempAudioFile)
+                        if (audioValidation.isValid) {
                             val muxOk = muxVideoAndAudioToMp4(
                                 videoFile = destinationFile,
                                 audioFile = tempAudioFile,
@@ -349,12 +389,24 @@ class DownloadQueueManager(
             } catch (e: Exception) {
                 val failedTask = dao.getDownloadById(jobId)
                 if (failedTask != null && pausedFlags[jobId] != true) {
+                    // Clean up any partial or 0-byte files on failure
+                    tempFilesToClean.forEach { f -> runCatching { if (f.exists()) f.delete() } }
+                    failedTask.localFilePath?.let { path ->
+                        val f = File(path)
+                        if (f.exists() && f.length() < 512L) {
+                            runCatching { f.delete() }
+                        }
+                    }
+                    val classified = DownloadErrorHandler.classify(e, failedTask.providerName)
                     dao.upsertDownload(
                         failedTask.copy(
                             state = DownloadJobState.FAILED.name,
+                            downloadedBytes = 0L,
+                            progressPercent = 0,
                             speedBytesPerSec = 0L,
                             etaSeconds = -1L,
-                            errorMessage = e.localizedMessage ?: "Network transfer failed",
+                            localFilePath = null,
+                            errorMessage = "${classified.userFriendlyMessage} (${classified.recoveryActionHint})",
                             updatedAt = System.currentTimeMillis()
                         )
                     )
@@ -366,25 +418,53 @@ class DownloadQueueManager(
         activeJobs[jobId] = job
     }
 
-    private suspend fun buildOrderedCandidateStreamUrls(task: DownloadTaskEntity): List<String> {
+    private suspend fun buildOrderedCandidateStreamUrls(task: DownloadTaskEntity): Pair<List<String>, String?> {
         val candidates = mutableListOf<String>()
-        if (task.targetDownloadUrl.startsWith("http")) {
+        var freshCompanionAudio: String? = null
+
+        val hasValidTarget = task.targetDownloadUrl.startsWith("http") &&
+            !MediaStreamValidator.isLikelyWebpageLandingUrl(task.targetDownloadUrl)
+
+        if (hasValidTarget) {
             candidates.add(task.targetDownloadUrl)
         }
 
-        // Re-analyze sourceUrl in case the social platform's signed CDN URL expired or needs fresh extraction
-        if (task.sourceUrl.startsWith("http") && task.sourceUrl != task.targetDownloadUrl) {
+        // Re-analyze sourceUrl in case the social platform's signed CDN URL expired, was cleared on Retry, or needs fresh extraction
+        if (task.sourceUrl.startsWith("http") && (task.sourceUrl != task.targetDownloadUrl || !hasValidTarget)) {
             runCatching {
                 when (val outcome = analyzerEngine.analyzeUrl(task.sourceUrl)) {
                     is UrlAnalysisOutcome.Success -> {
-                        val matchingOptions = if (task.format.equals(MediaFormat.MP3.name, ignoreCase = true)) {
-                            outcome.result.audioOptions + outcome.result.videoOptions
-                        } else {
-                            outcome.result.videoOptions + outcome.result.audioOptions
+                        val isAudioFormat = task.format.equals(MediaFormat.MP3.name, ignoreCase = true)
+                        val primaryPool = if (isAudioFormat) outcome.result.audioOptions else outcome.result.videoOptions
+                        val secondaryPool = if (isAudioFormat) outcome.result.videoOptions else outcome.result.audioOptions
+
+                        // Prioritize exact quality label match first so the user gets the exact resolution they chose
+                        val exactQualityMatch = primaryPool.firstOrNull {
+                            it.label.equals(task.qualityLabel, ignoreCase = true) ||
+                                it.resolutionOrBitrate.equals(task.resolutionOrBitrate, ignoreCase = true)
                         }
-                        matchingOptions.forEach { opt ->
-                            if (opt.downloadUrl.startsWith("http")) {
+                        if (exactQualityMatch != null &&
+                            exactQualityMatch.downloadUrl.startsWith("http") &&
+                            !MediaStreamValidator.isLikelyWebpageLandingUrl(exactQualityMatch.downloadUrl)
+                        ) {
+                            if (!hasValidTarget) {
+                                candidates.add(0, exactQualityMatch.downloadUrl)
+                            } else {
+                                candidates.add(exactQualityMatch.downloadUrl)
+                            }
+                            if (freshCompanionAudio == null && !exactQualityMatch.companionAudioUrl.isNullOrBlank()) {
+                                freshCompanionAudio = exactQualityMatch.companionAudioUrl
+                            }
+                        }
+
+                        (primaryPool + secondaryPool).forEach { opt ->
+                            if (opt.downloadUrl.startsWith("http") &&
+                                !MediaStreamValidator.isLikelyWebpageLandingUrl(opt.downloadUrl)
+                            ) {
                                 candidates.add(opt.downloadUrl)
+                                if (freshCompanionAudio == null && !opt.companionAudioUrl.isNullOrBlank()) {
+                                    freshCompanionAudio = opt.companionAudioUrl
+                                }
                             }
                         }
                     }
@@ -393,7 +473,7 @@ class DownloadQueueManager(
             }
         }
 
-        return candidates.distinct()
+        return candidates.distinct() to freshCompanionAudio
     }
 
     private fun isHtmlErrorPageFile(file: File): Boolean {
@@ -535,10 +615,19 @@ class DownloadQueueManager(
         rangeHeader: String?
     ): okhttp3.Response {
         val isGoogleVideo = targetUrl.contains("googlevideo.com", ignoreCase = true)
-        val userAgent = if (isGoogleVideo) {
-            "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
-        } else {
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        val userAgent = when {
+            isGoogleVideo && targetUrl.contains("c=IOS", ignoreCase = true) ->
+                "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
+            isGoogleVideo && targetUrl.contains("c=ANDROID_CREATOR", ignoreCase = true) ->
+                "com.google.android.apps.youtube.creator/24.30.100 (Linux; U; Android 14; en_US) gzip"
+            isGoogleVideo && targetUrl.contains("c=ANDROID_TESTSUITE", ignoreCase = true) ->
+                "com.google.android.youtube/1.9 (Linux; U; Android 14; en_US) gzip"
+            isGoogleVideo && targetUrl.contains("c=ANDROID", ignoreCase = true) && !targetUrl.contains("c=ANDROID_VR", ignoreCase = true) ->
+                "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip"
+            isGoogleVideo ->
+                "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+            else ->
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
 
         val builder = Request.Builder()
