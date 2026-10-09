@@ -7,10 +7,6 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true"
-
 jobs:
   build-and-test:
     name: Build, Unit Test & Package Debug APK
@@ -27,25 +23,37 @@ jobs:
           java-version: '21'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '9.3.1'
 
-      - name: Decode Debug Keystore if Missing
+      - name: Ensure Debug Keystore Exists
         run: |
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+          if [ -s debug.keystore.base64 ]; then
             base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          if [ ! -s debug.keystore ]; then
+            rm -f debug.keystore
+            keytool -genkeypair -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
 
       - name: Run Unit & Robolectric Tests
-        run: gradle :app:testDebugUnitTest -Djava.awt.headless=true
+        run: gradle :app:testDebugUnitTest
 
       - name: Assemble Debug APK
-        run: gradle :app:assembleDebug -Djava.awt.headless=true
+        run: gradle :app:assembleDebug
 
       - name: Upload Debug APK Artifact
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linkflow-debug-apk
           path: app/build/outputs/apk/debug/*.apk
