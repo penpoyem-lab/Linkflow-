@@ -1,0 +1,6 @@
+{
+  "name": "LinkFlow",
+  "description": "Premium mobile-first media downloader for authorized MP4 video and MP3 audio streams with liquid-glass UI and real-time progress.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

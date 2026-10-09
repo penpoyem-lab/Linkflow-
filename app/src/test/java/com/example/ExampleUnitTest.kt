@@ -1,0 +1,55 @@
+package com.example
+
+import com.example.data.service.MediaAnalyzerEngine
+import com.example.data.service.UrlAnalysisOutcome
+import com.example.util.FormatUtils
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class ExampleUnitTest {
+    private val engine = MediaAnalyzerEngine()
+
+    @Test
+    fun `empty url returns ERR_EMPTY_INPUT`() = runBlocking {
+        val outcome = engine.analyzeUrl("   ")
+        assertTrue(outcome is UrlAnalysisOutcome.Error)
+        val err = outcome as UrlAnalysisOutcome.Error
+        assertEquals("ERR_EMPTY_INPUT", err.errorCode)
+    }
+
+    @Test
+    fun `ssrf localhost and private network urls are blocked`() = runBlocking {
+        val localhostOutcome = engine.analyzeUrl("http://127.0.0.1:8080/secret.mp4")
+        assertTrue(localhostOutcome is UrlAnalysisOutcome.Error)
+        assertEquals("ERR_SSRF_BLOCKED", (localhostOutcome as UrlAnalysisOutcome.Error).errorCode)
+
+        val privateLanOutcome = engine.analyzeUrl("https://192.168.1.50/stream.mp4")
+        assertTrue(privateLanOutcome is UrlAnalysisOutcome.Error)
+        assertEquals("ERR_SSRF_BLOCKED", (privateLanOutcome as UrlAnalysisOutcome.Error).errorCode)
+    }
+
+    @Test
+    fun `direct mp4 url is analyzed and returns real video option`() = runBlocking {
+        val directUrl = "https://archive.org/download/sample_video_stream/sample_clip.mp4"
+        val outcome = engine.analyzeUrl(directUrl)
+        assertTrue(outcome is UrlAnalysisOutcome.Success)
+        val result = (outcome as UrlAnalysisOutcome.Success).result
+        assertTrue(result.videoOptions.isNotEmpty())
+        assertEquals(directUrl, result.videoOptions.first().downloadUrl)
+    }
+
+    @Test
+    fun `extractUrlFromSharedText extracts clean url from social media share caption`() {
+        val sharedCaption = "Check out this awesome clip! https://www.tiktok.com/@creator/video/1234567890?is_from_webapp=1&sender_device=pcShared via TikTok."
+        val extracted = MediaAnalyzerEngine.extractUrlFromSharedText(sharedCaption)
+        assertTrue(extracted.startsWith("https://www.tiktok.com/@creator/video/1234567890"))
+    }
+
+    @Test
+    fun `byte formatting is accurate`() {
+        assertEquals("0 B", FormatUtils.formatBytes(0))
+        assertEquals("1.0 MB", FormatUtils.formatBytes(1024L * 1024L))
+    }
+}
