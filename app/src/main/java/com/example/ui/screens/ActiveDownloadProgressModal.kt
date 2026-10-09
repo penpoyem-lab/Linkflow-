@@ -35,7 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -487,7 +487,7 @@ fun ActiveDownloadProgressModal(
 
                         GlassCapsuleActionButton(
                             label = "Background",
-                            icon = Icons.Default.OpenInNew,
+                            icon = androidx.compose.material.icons.Icons.AutoMirrored.Filled.OpenInNew,
                             borderTint = Color(0xFF38BDF8),
                             onClick = onRunInBackground,
                             modifier = Modifier

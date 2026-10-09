@@ -68,7 +68,7 @@ abstract class LinkFlowDatabase : RoomDatabase() {
                     LinkFlowDatabase::class.java,
                     "linkflow_media.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(true)
                     .build()
                 INSTANCE = instance
                 instance

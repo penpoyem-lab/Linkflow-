@@ -10,6 +10,7 @@ LinkFlow is a native Android application built with **Kotlin** and **Jetpack Com
 ├── .github/workflows/
 │   └── android-ci.yml                     # GitHub Actions CI for tests & APK build
 ├── .env.example                           # Safe environment variable template
+├── LICENSE                                # MIT Open Source License
 ├── app/
 │   ├── build.gradle.kts                   # App module configuration (AGP, Compose, Room, KSP, OkHttp)
 │   └── src/
@@ -104,3 +105,10 @@ LinkFlow is a native Android application built with **Kotlin** and **Jetpack Com
   ```bash
   gradle :app:lintDebug
   ```
+
+---
+
+## 5. License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details. Third-party open-source libraries (AndroidX, Jetpack Compose, Room, DataStore, OkHttp, Coil, and Material Icons) are licensed under the **Apache License 2.0**.
+

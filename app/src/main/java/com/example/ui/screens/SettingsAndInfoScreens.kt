@@ -92,6 +92,7 @@ fun SettingsScreen(
     var showBrandDialog by remember { mutableStateOf(false) }
     var brandInput by remember(preferences.appBrandName) { mutableStateOf(preferences.appBrandName) }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showLicenseSheet by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -508,6 +509,12 @@ fun SettingsScreen(
                     )
                     HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                     SettingsLinkRow(
+                        title = "Open-Source License & Notices",
+                        subtitle = "MIT License • Apache 2.0 Third-Party attributions",
+                        onClick = { showLicenseSheet = true }
+                    )
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    SettingsLinkRow(
                         title = "About ${preferences.appBrandName}",
                         subtitle = "Version 2.4.0 (Build 240) • Liquid-Glass Architecture",
                         onClick = onShowAbout
@@ -516,6 +523,13 @@ fun SettingsScreen(
             }
             }
         }
+    }
+
+    if (showLicenseSheet) {
+        OpenSourceLicenseDialog(
+            brandName = preferences.appBrandName,
+            onDismiss = { showLicenseSheet = false }
+        )
     }
 
     if (showBrandDialog) {
@@ -839,6 +853,12 @@ fun PrivacyAndTermsSheet(onClose: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFFCBD5E1)
                 )
+                Text(
+                    text = "4. Software License (MIT License)\n" +
+                        "Copyright (c) 2026 LinkFlow Contributors. Released under the MIT Open-Source License. Bundled AndroidX, Jetpack Compose, OkHttp, Room, and Coil libraries are licensed under the Apache License 2.0.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFCBD5E1)
+                )
 
                 Button(
                     onClick = onClose,
@@ -850,6 +870,74 @@ fun PrivacyAndTermsSheet(onClose: () -> Unit) {
             }
         }
     }
+}
+
+@Composable
+fun OpenSourceLicenseDialog(
+    brandName: String,
+    onDismiss: () -> Unit
+) {
+    val tokens = LocalLinkFlowTokens.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            LinkFlowLogoEmblem(size = 48.dp, animated = true)
+        },
+        title = {
+            Text(
+                text = "$brandName License & Notices",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+            )
+        },
+        text = {
+            LazyColumn(
+                modifier = Modifier.height(320.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    Text(
+                        text = "MIT License\nCopyright (c) 2026 $brandName Contributors",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = tokens.accentCyan
+                    )
+                }
+                item {
+                    Text(
+                        text = "Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\n" +
+                            "The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\n" +
+                            "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                item {
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
+                }
+                item {
+                    Text(
+                        text = "Third-Party Open Source Libraries",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = tokens.accentCyan
+                    )
+                }
+                item {
+                    Text(
+                        text = "• AndroidX & Jetpack Compose — Apache License 2.0\n" +
+                            "• Room SQLite & Jetpack DataStore — Apache License 2.0\n" +
+                            "• Square OkHttp 4 — Apache License 2.0\n" +
+                            "• Coil Compose Image Loader — Apache License 2.0\n" +
+                            "• Kotlin Coroutines & Serialization — Apache License 2.0\n" +
+                            "• Space Grotesk, Plus Jakarta Sans & JetBrains Mono — SIL Open Font License 1.1",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable
@@ -877,8 +965,9 @@ fun AboutLinkFlowDialog(
                 Text(
                     text = "• Multi-Resolution MP4 (144p to 4K Ultra)\n" +
                         "• Studio MP3 Bitrate Selection (128k / 192k / 320k)\n" +
+                        "• Universal Social Media Share Target\n" +
                         "• Real-Time HTTP Byte-Stream Queue Engine\n" +
-                        "• SSRF & Copyright Compliance Guard",
+                        "• Licensed under the MIT Open-Source License",
                     style = MaterialTheme.typography.bodySmall
                 )
             }

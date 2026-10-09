@@ -99,7 +99,11 @@ class MainActivity : ComponentActivity() {
         return when (intent.action) {
             Intent.ACTION_SEND -> {
                 intent.getStringExtra(Intent.EXTRA_TEXT)
-                    ?: intent.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)?.toString()
+                    ?: androidx.core.content.IntentCompat.getParcelableExtra(
+                        intent,
+                        Intent.EXTRA_STREAM,
+                        android.net.Uri::class.java
+                    )?.toString()
             }
             Intent.ACTION_VIEW -> {
                 intent.dataString

@@ -41,7 +41,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.AlertDialog
@@ -200,7 +200,7 @@ fun LibraryScreen(
                                         .testTag("library_sort_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Sort,
+                                        imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.Sort,
                                         contentDescription = "Sort library",
                                         tint = tokens.accentCyan,
                                         modifier = Modifier.size(20.dp)
