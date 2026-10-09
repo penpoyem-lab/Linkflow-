@@ -343,13 +343,6 @@ class DownloadQueueManager(
             }
         }
 
-        // High-availability verified fallback MP4 & MP3 mirrors so a social/CDN link never gets stuck at 0%
-        if (task.format.equals(MediaFormat.MP3.name, ignoreCase = true)) {
-            candidates.addAll(MediaAnalyzerEngine.VERIFIED_MP3_FALLBACK_MIRRORS)
-        } else {
-            candidates.addAll(MediaAnalyzerEngine.VERIFIED_MP4_FALLBACK_MIRRORS)
-        }
-
         return candidates.distinct()
     }
 
@@ -491,15 +484,22 @@ class DownloadQueueManager(
         referer: String,
         rangeHeader: String?
     ): okhttp3.Response {
+        val isGoogleVideo = targetUrl.contains("googlevideo.com", ignoreCase = true)
+        val userAgent = if (isGoogleVideo) {
+            "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+        } else {
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+        }
+
         val builder = Request.Builder()
             .url(targetUrl)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
-            )
+            .header("User-Agent", userAgent)
             .header("Accept", "*/*")
             .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Referer", referer)
+
+        if (!isGoogleVideo) {
+            builder.header("Referer", referer)
+        }
 
         if (rangeHeader != null) {
             builder.header("Range", rangeHeader)

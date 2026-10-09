@@ -52,12 +52,41 @@ class ExampleUnitTest {
     }
 
     @Test
-    fun `instagram reel share link resolves to downloadable video and audio options`() = runBlocking {
-        val igOutcome = engine.analyzeUrl("https://www.instagram.com/reel/C5xyz123/?igsh=d2NybnF4NWVyeGFj")
+    fun `instagram reel share link resolves to exact embedded video and audio stream`() = runBlocking {
+        val realStreamUrl = "https://scontent.cdninstagram.com/v/t66.30100-16/exact_reel_stream.mp4"
+        val mockClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val htmlBody = """
+                    <html>
+                    <head>
+                        <meta property="og:title" content="@creator_handle" />
+                        <meta property="og:description" content="Exact Reel Caption" />
+                    </head>
+                    <body>
+                        <script>{"video_url":"$realStreamUrl","username":"creator_handle"}</script>
+                    </body>
+                    </html>
+                """.trimIndent()
+                okhttp3.Response.Builder()
+                    .request(req)
+                    .protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .header("Content-Type", "text/html")
+                    .body(okhttp3.ResponseBody.create(null, htmlBody))
+                    .build()
+            }
+            .build()
+
+        val testEngine = MediaAnalyzerEngine(mockClient)
+        val igOutcome = testEngine.analyzeUrl("https://www.instagram.com/reel/C5xyz123/?igsh=d2NybnF4NWVyeGFj")
         assertTrue(igOutcome is UrlAnalysisOutcome.Success)
         val result = (igOutcome as UrlAnalysisOutcome.Success).result
         assertTrue(result.videoOptions.isNotEmpty())
+        assertEquals(realStreamUrl, result.videoOptions.first().downloadUrl)
         assertTrue(result.audioOptions.isNotEmpty())
+        assertEquals(realStreamUrl, result.audioOptions.first().downloadUrl)
     }
 
     @Test

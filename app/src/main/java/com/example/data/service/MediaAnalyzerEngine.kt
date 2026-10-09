@@ -39,19 +39,6 @@ class MediaAnalyzerEngine(
     companion object {
         private val URL_EXTRACT_REGEX = Regex("""https?://[^\s"'<>]+""", RegexOption.IGNORE_CASE)
 
-        val VERIFIED_MP4_FALLBACK_MIRRORS: List<String> = listOf(
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4"
-        )
-
-        val VERIFIED_MP3_FALLBACK_MIRRORS: List<String> = listOf(
-            "https://commondatastorage.googleapis.com/codeskulptor-demos/DDR_assets/Kangaroo_MusiQue_-_The_Neverwritten_Role_Playing_Game.mp3",
-            "https://commondatastorage.googleapis.com/codeskulptor-assets/Epoq-Lepidoptera.ogg",
-            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-        )
-
         /**
          * Extracts the first valid HTTP/HTTPS URL from any shared social media text
          * (e.g., "Check out this video! https://www.instagram.com/reel/Cxyz123/?igsh=...").
@@ -353,10 +340,32 @@ class MediaAnalyzerEngine(
             if (tikTokOutcome != null) return tikTokOutcome
         }
 
-        // Step G: YouTube / Shorts via Multi-Instance Piped + Invidious APIs
+        // Step G: Facebook / fb.watch Direct HD/SD Video Extractor
+        if (host.contains("facebook.com") || host.contains("fb.watch") || host.contains("fb.com")) {
+            val fbOutcome = extractFacebookStreams(
+                originalUrl = url,
+                resolvedUrl = resolvedUrl,
+                fallbackTitle = fetchedTitle,
+                fallbackAuthor = fetchedAuthor,
+                fallbackThumb = fetchedThumb
+            )
+            if (fbOutcome != null) return fbOutcome
+        }
+
+        // Step H: YouTube / Shorts via Direct YouTube Innertube API (ANDROID_VR / IOS / ANDROID_TESTSUITE) + Piped/Invidious fallback
         if (host.contains("youtube.com") || host.contains("youtu.be")) {
-            val ytId = extractYouTubeVideoId(resolvedUrl, URI(resolvedUrl).path ?: path)
+            val ytId = extractYouTubeVideoId(resolvedUrl, runCatching { URI(resolvedUrl).path }.getOrNull() ?: path)
+                ?: extractYouTubeVideoId(url, path)
             if (!ytId.isNullOrBlank()) {
+                val innertubeOutcome = extractYouTubeViaInnertubeClients(
+                    originalUrl = url,
+                    videoId = ytId,
+                    fallbackTitle = fetchedTitle,
+                    fallbackAuthor = fetchedAuthor,
+                    fallbackThumb = fetchedThumb
+                )
+                if (innertubeOutcome != null) return innertubeOutcome
+
                 val pipedOutcome = extractYouTubeViaPublicPipedInstances(
                     originalUrl = url,
                     videoId = ytId,
@@ -368,7 +377,7 @@ class MediaAnalyzerEngine(
             }
         }
 
-        // Step H: Universal Multi-Instance Cobalt API Resolver (Instagram, YouTube, TikTok, X, Facebook, Reddit, SoundCloud, Vimeo, Pinterest, Dailymotion)
+        // Step I: Universal Multi-Instance Cobalt API Resolver (v10 + v7 protocol)
         val cobaltOutcome = extractViaPublicCobaltInstances(
             originalUrl = url,
             targetUrl = cleanSocialUrl,
@@ -379,7 +388,7 @@ class MediaAnalyzerEngine(
         )
         if (cobaltOutcome != null) return cobaltOutcome
 
-        // Step I: Inspect OpenGraph (og:video, og:audio) & Bot User-Agent HTML scraping
+        // Step J: Inspect OpenGraph (og:video, og:audio) & Multi-Bot User-Agent HTML scraping
         val pageMedia = extractOpenGraphAndHtmlStreams(resolvedUrl)
         val bestTitle = fetchedTitle
             ?: pageMedia.title?.takeIf { !it.equals("Instagram", ignoreCase = true) }
@@ -410,14 +419,11 @@ class MediaAnalyzerEngine(
             )
         }
 
-        // Step J: Guaranteed Universal Direct-Stream Fallback Bridge so NO social media link is ever blocked by ERR_PROVIDER_RESTRICTED
-        return buildGuaranteedSocialStreamOutcome(
-            originalUrl = url,
-            resolvedUrl = resolvedUrl,
-            providerLabel = providerLabel,
-            title = bestTitle,
-            author = bestAuthor,
-            thumbnailUrl = bestThumb
+        return UrlAnalysisOutcome.Error(
+            title = "Direct Stream Not Found",
+            message = "Could not extract the exact video/audio stream from this $providerLabel link. The post may be private, age-restricted, or require login.",
+            recoverySuggestion = "Verify the post is public and try pasting the direct share link again.",
+            errorCode = "ERR_STREAM_EXTRACTION_FAILED"
         )
     }
 
@@ -429,10 +435,29 @@ class MediaAnalyzerEngine(
                     "User-Agent",
                     "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
                 )
-                .head()
+                .get()
                 .build()
             okHttpClient.newCall(req).execute().use { resp ->
-                resp.request.url.toString()
+                val finalUrl = resp.request.url.toString()
+                val bodyPreview = resp.body?.source()?.let { source ->
+                    source.request(16_384)
+                    source.buffer.clone().readString(Charsets.UTF_8)
+                }.orEmpty()
+                // Check if page has canonical or og:url redirect (common on Instagram /share/reel/... links)
+                val ogUrl = Regex(
+                    """<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']""",
+                    RegexOption.IGNORE_CASE
+                ).find(bodyPreview)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+                val canonicalUrl = Regex(
+                    """<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']""",
+                    RegexOption.IGNORE_CASE
+                ).find(bodyPreview)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+
+                when {
+                    !ogUrl.isNullOrBlank() && ogUrl.startsWith("http") -> ogUrl
+                    !canonicalUrl.isNullOrBlank() && canonicalUrl.startsWith("http") -> canonicalUrl
+                    else -> finalUrl
+                }
             }
         } catch (_: Exception) {
             url
@@ -533,35 +558,117 @@ class MediaAnalyzerEngine(
             }
         }
 
-        // Method 2: Fetch Instagram's official `/p/<shortcode>/embed/captioned/` page which embeds `video_url` in JSON
+        // Method 2: Fetch Instagram's official `/p/<shortcode>/embed/captioned/` and `/reel/<shortcode>/embed/` pages
+        if (discoveredVideos.isEmpty() && !shortcode.isNullOrBlank()) {
+            val embedEndpoints = listOf(
+                "https://www.instagram.com/p/$shortcode/embed/captioned/",
+                "https://www.instagram.com/reel/$shortcode/embed/captioned/",
+                "https://www.instagram.com/p/$shortcode/embed/"
+            )
+            for (embedUrl in embedEndpoints) {
+                if (discoveredVideos.isNotEmpty()) break
+                try {
+                    val req = Request.Builder()
+                        .url(embedUrl)
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
+                        )
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val html = resp.body?.string().orEmpty()
+                            // Match both normal JSON ("video_url":"...") and escaped JSON (\"video_url\":\"...\")
+                            val videoUrlMatches = Regex("""\\?["']video_url\\?["']\s*:\s*\\?["']([^"']+)\\?["']""")
+                                .findAll(html)
+                                .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                                .filter { it.startsWith("http") }
+                                .toList()
+                            discoveredVideos.addAll(videoUrlMatches)
+
+                            // Also check for video_versions array urls
+                            val versionUrlMatches = Regex("""\\?["']url\\?["']\s*:\s*\\?["'](https?://[^"']+\.mp4[^"']*)\\?["']""")
+                                .findAll(html)
+                                .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                                .filter { it.startsWith("http") }
+                                .toList()
+                            discoveredVideos.addAll(versionUrlMatches)
+
+                            if (thumbUrl.isNullOrBlank()) {
+                                thumbUrl = Regex("""\\?["']display_url\\?["']\s*:\s*\\?["']([^"']+)\\?["']""")
+                                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                            }
+                            if (creatorHandle.isNullOrBlank()) {
+                                creatorHandle = Regex("""\\?["']username\\?["']\s*:\s*\\?["']([^"']+)\\?["']""")
+                                    .find(html)?.groupValues?.getOrNull(1)?.let { "@${it.trimEnd('\\')}" }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Continue
+                }
+            }
+        }
+
+        // Method 3: Instagram GraphQL API query for shortcode (`PolarisPostActionLoadPostQueryQuery`)
         if (discoveredVideos.isEmpty() && !shortcode.isNullOrBlank()) {
             try {
-                val embedUrl = "https://www.instagram.com/p/$shortcode/embed/captioned/"
-                val req = Request.Builder()
-                    .url(embedUrl)
-                    .header(
-                        "User-Agent",
-                        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-                    )
-                    .get()
+                val variablesJson = JSONObject().put("shortcode", shortcode).toString()
+                val formBody = FormBody.Builder()
+                    .add("av", "0")
+                    .add("__d", "www")
+                    .add("__user", "0")
+                    .add("__a", "1")
+                    .add("__req", "3")
+                    .add("fb_api_caller_class", "RelayModern")
+                    .add("fb_api_req_friendly_name", "PolarisPostActionLoadPostQueryQuery")
+                    .add("variables", variablesJson)
+                    .add("server_timestamps", "true")
+                    .add("doc_id", "8845758582119845")
                     .build()
-                okHttpClient.newCall(req).execute().use { resp ->
+                val gqlReq = Request.Builder()
+                    .url("https://www.instagram.com/graphql/query")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("X-IG-App-ID", "936619743392459")
+                    .header("X-FB-Friendly-Name", "PolarisPostActionLoadPostQueryQuery")
+                    .header("X-ASBD-ID", "129477")
+                    .header("Referer", "https://www.instagram.com/p/$shortcode/")
+                    .post(formBody)
+                    .build()
+                okHttpClient.newCall(gqlReq).execute().use { resp ->
                     if (resp.isSuccessful) {
-                        val html = resp.body?.string().orEmpty()
-                        val videoUrlMatches = Regex("""["']video_url["']\s*:\s*["']([^"']+)["']""")
-                            .findAll(html)
-                            .map { decodeHtmlUrl(it.groupValues[1]) }
-                            .filter { it.startsWith("http") }
-                            .toList()
-                        discoveredVideos.addAll(videoUrlMatches)
-
-                        if (thumbUrl.isNullOrBlank()) {
-                            thumbUrl = Regex("""["']display_url["']\s*:\s*["']([^"']+)["']""")
-                                .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
-                        }
-                        if (creatorHandle.isNullOrBlank()) {
-                            creatorHandle = Regex("""["']username["']\s*:\s*["']([^"']+)["']""")
-                                .find(html)?.groupValues?.getOrNull(1)?.let { "@$it" }
+                        val bodyStr = resp.body?.string().orEmpty()
+                        val media = JSONObject(bodyStr)
+                            .optJSONObject("data")
+                            ?.optJSONObject("xdt_shortcode_media")
+                        if (media != null) {
+                            val directVideo = media.optString("video_url").takeIf { it.startsWith("http") }
+                            if (directVideo != null) {
+                                discoveredVideos.add(directVideo)
+                            }
+                            val versions = media.optJSONArray("video_versions")
+                            if (versions != null) {
+                                for (i in 0 until versions.length()) {
+                                    val vUrl = versions.optJSONObject(i)?.optString("url")
+                                    if (!vUrl.isNullOrBlank() && vUrl.startsWith("http")) {
+                                        discoveredVideos.add(vUrl)
+                                    }
+                                }
+                            }
+                            if (thumbUrl.isNullOrBlank()) {
+                                thumbUrl = media.optString("display_url").takeIf { it.startsWith("http") }
+                            }
+                            if (creatorHandle.isNullOrBlank()) {
+                                val ownerUser = media.optJSONObject("owner")?.optString("username")
+                                if (!ownerUser.isNullOrBlank()) creatorHandle = "@$ownerUser"
+                            }
+                            if (captionTitle.isNullOrBlank()) {
+                                val edges = media.optJSONObject("edge_media_to_caption")?.optJSONArray("edges")
+                                val cap = edges?.optJSONObject(0)?.optJSONObject("node")?.optString("text")
+                                if (!cap.isNullOrBlank()) captionTitle = cap.take(90)
+                            }
                         }
                     }
                 }
@@ -570,8 +677,9 @@ class MediaAnalyzerEngine(
             }
         }
 
-        if (discoveredVideos.isNotEmpty()) {
-            val primaryStream = discoveredVideos.first()
+        val uniqueVideos = discoveredVideos.distinct()
+        if (uniqueVideos.isNotEmpty()) {
+            val primaryStream = uniqueVideos.first()
             val finalTitle = captionTitle?.takeIf { !it.equals("Instagram", ignoreCase = true) }
                 ?: "Instagram Reel ${shortcode ?: ""}".trim()
             val finalAuthor = creatorHandle?.takeIf { !it.equals("Instagram", ignoreCase = true) }
@@ -585,14 +693,79 @@ class MediaAnalyzerEngine(
                 thumbnailUrl = thumbUrl,
                 videoStreamUrls = listOf(
                     "1080p Full HD (Original Reel)" to primaryStream,
-                    "720p HD (Fast Mobile)" to (discoveredVideos.getOrNull(1) ?: primaryStream),
-                    "480p Data Saver" to primaryStream
+                    "720p HD (Fast Mobile)" to (uniqueVideos.getOrNull(1) ?: primaryStream),
+                    "480p Data Saver" to (uniqueVideos.lastOrNull() ?: primaryStream)
                 ),
                 audioStreamUrl = primaryStream
             )
         }
 
         return null
+    }
+
+    /**
+     * Deep Facebook / fb.watch Video Extractor
+     */
+    private fun extractFacebookStreams(
+        originalUrl: String,
+        resolvedUrl: String,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome? {
+        return try {
+            val req = Request.Builder()
+                .url(resolvedUrl)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                )
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Sec-Fetch-Mode", "navigate")
+                .get()
+                .build()
+            okHttpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val html = resp.body?.string().orEmpty()
+                val hdUrl = Regex("""["'](?:browser_native_hd_url|hd_src|hd_src_no_ratelimit)["']\s*:\s*["']([^"']+)["']""")
+                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                    ?.takeIf { it.startsWith("http") }
+                val sdUrl = Regex("""["'](?:browser_native_sd_url|sd_src|sd_src_no_ratelimit|playable_url)["']\s*:\s*["']([^"']+)["']""")
+                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                    ?.takeIf { it.startsWith("http") }
+                val ogVideo = Regex(
+                    """<meta[^>]+property=["']og:video(?::url|:secure_url)?["'][^>]+content=["']([^"']+)["']""",
+                    RegexOption.IGNORE_CASE
+                ).find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+                    ?.takeIf { it.startsWith("http") }
+
+                val streams = mutableListOf<Pair<String, String>>()
+                if (hdUrl != null) streams.add("1080p Full HD" to hdUrl)
+                if (sdUrl != null) streams.add("720p Standard" to sdUrl)
+                if (ogVideo != null && streams.isEmpty()) streams.add("720p HD" to ogVideo)
+
+                if (streams.isEmpty()) return null
+                val title = fallbackTitle
+                    ?: Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                        .find(html)?.groupValues?.getOrNull(1)
+                    ?: "Facebook Video"
+                val thumb = fallbackThumb
+                    ?: Regex("""<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                        .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+
+                buildSocialSuccessOutcome(
+                    originalUrl = originalUrl,
+                    providerLabel = "Facebook",
+                    title = title,
+                    author = fallbackAuthor ?: "Facebook Creator",
+                    thumbnailUrl = thumb,
+                    videoStreamUrls = streams,
+                    audioStreamUrl = streams.first().second
+                )
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -604,56 +777,73 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        return try {
-            val statusRegex = Regex("""status/(\d+)""")
-            val tweetId = statusRegex.find(url)?.groupValues?.getOrNull(1) ?: return null
-            val apiReq = Request.Builder()
-                .url("https://api.vxtwitter.com/Twitter/status/$tweetId")
-                .header("User-Agent", "LinkFlow-Android/2.4")
-                .get()
-                .build()
-            okHttpClient.newCall(apiReq).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                val json = JSONObject(resp.body?.string().orEmpty())
-                val text = json.optString("text").takeIf { it.isNotBlank() }
-                    ?: fallbackTitle ?: "X Video ($tweetId)"
-                val userName = json.optString("user_name").takeIf { it.isNotBlank() }
-                    ?: fallbackAuthor ?: "X Creator"
-                val mediaExtended = json.optJSONArray("media_extended") ?: return null
-                val videoUrls = mutableListOf<String>()
-                var thumb: String? = fallbackThumb
-                for (i in 0 until mediaExtended.length()) {
-                    val m = mediaExtended.optJSONObject(i) ?: continue
-                    val mUrl = m.optString("url")
-                    if (thumb == null) {
-                        thumb = m.optString("thumbnail_url").takeIf { it.startsWith("http") }
+        val statusRegex = Regex("""status/(\d+)""")
+        val tweetId = statusRegex.find(url)?.groupValues?.getOrNull(1) ?: return null
+
+        // Try VXTwitter API first, then FXTwitter API
+        val endpoints = listOf(
+            "https://api.vxtwitter.com/Twitter/status/$tweetId",
+            "https://api.fxtwitter.com/status/$tweetId"
+        )
+        for (apiEndpoint in endpoints) {
+            try {
+                val apiReq = Request.Builder()
+                    .url(apiEndpoint)
+                    .header("User-Agent", "LinkFlow-Android/2.4")
+                    .get()
+                    .build()
+                okHttpClient.newCall(apiReq).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val json = JSONObject(resp.body?.string().orEmpty())
+                    val tweetNode = json.optJSONObject("tweet") ?: json
+                    val text = tweetNode.optString("text").takeIf { it.isNotBlank() }
+                        ?: fallbackTitle ?: "X Video ($tweetId)"
+                    val userName = tweetNode.optString("user_name").takeIf { it.isNotBlank() }
+                        ?: tweetNode.optJSONObject("author")?.optString("name")?.takeIf { it.isNotBlank() }
+                        ?: fallbackAuthor ?: "X Creator"
+
+                    val videoUrls = mutableListOf<String>()
+                    var thumb: String? = fallbackThumb
+
+                    val mediaExtended = tweetNode.optJSONArray("media_extended")
+                        ?: tweetNode.optJSONObject("media")?.optJSONArray("videos")
+                    if (mediaExtended != null) {
+                        for (i in 0 until mediaExtended.length()) {
+                            val m = mediaExtended.optJSONObject(i) ?: continue
+                            val mUrl = m.optString("url")
+                            if (thumb == null) {
+                                thumb = m.optString("thumbnail_url").takeIf { it.startsWith("http") }
+                            }
+                            if (mUrl.startsWith("http")) {
+                                videoUrls.add(mUrl)
+                            }
+                        }
                     }
-                    if (mUrl.startsWith("http")) {
-                        videoUrls.add(mUrl)
+                    if (videoUrls.isNotEmpty()) {
+                        val first = videoUrls.first()
+                        return buildSocialSuccessOutcome(
+                            originalUrl = url,
+                            providerLabel = "X (Twitter)",
+                            title = text.take(90),
+                            author = userName,
+                            thumbnailUrl = thumb,
+                            videoStreamUrls = listOf(
+                                "1080p Full HD" to first,
+                                "720p HD" to first
+                            ),
+                            audioStreamUrl = first
+                        )
                     }
                 }
-                if (videoUrls.isEmpty()) return null
-                val first = videoUrls.first()
-                buildSocialSuccessOutcome(
-                    originalUrl = url,
-                    providerLabel = "X (Twitter)",
-                    title = text.take(90),
-                    author = userName,
-                    thumbnailUrl = thumb,
-                    videoStreamUrls = listOf(
-                        "1080p Full HD" to first,
-                        "720p HD" to first
-                    ),
-                    audioStreamUrl = first
-                )
+            } catch (_: Exception) {
+                // Try next endpoint
             }
-        } catch (_: Exception) {
-            null
         }
+        return null
     }
 
     /**
-     * Universal Cobalt API Resolver for Instagram, YouTube, TikTok, Facebook, X, Vimeo, SoundCloud, Reddit, Pinterest
+     * Universal Cobalt API Resolver supporting both v10 (`POST /`) and v7 (`POST /api/json`) instances
      */
     private fun extractViaPublicCobaltInstances(
         originalUrl: String,
@@ -663,35 +853,41 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        val cobaltEndpoints = listOf(
-            "https://api.cobalt.tools/api/json",
-            "https://cobalt-api.kwiatekmiki.com/api/json"
+        val v10Instances = listOf(
+            "https://cobalt-api.kwiatekmiki.com/",
+            "https://cobalt-backend.canine.tools/",
+            "https://cobalt.api.timelessnesses.me/",
+            "https://api.cobalt.best/"
         )
-        for (endpoint in cobaltEndpoints) {
+        for (endpoint in v10Instances) {
             try {
                 val payload = JSONObject().apply {
                     put("url", targetUrl)
-                    put("vQuality", "1080")
-                    put("aFormat", "mp3")
+                    put("videoQuality", "1080")
+                    put("audioFormat", "mp3")
+                    put("downloadMode", "auto")
                 }
                 val body = payload.toString().toRequestBody("application/json".toMediaType())
                 val req = Request.Builder()
                     .url(endpoint)
                     .header("Accept", "application/json")
                     .header("Content-Type", "application/json")
-                    .header("User-Agent", "LinkFlow-Android/2.4")
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) LinkFlow/2.4")
                     .post(body)
                     .build()
                 okHttpClient.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@use
                     val respJson = JSONObject(resp.body?.string().orEmpty())
                     val directUrl = respJson.optString("url").takeIf { it.startsWith("http") }
+                        ?: respJson.optJSONArray("picker")?.optJSONObject(0)?.optString("url")?.takeIf { it.startsWith("http") }
                     val audioUrl = respJson.optString("audio").takeIf { it.startsWith("http") }
                     if (directUrl != null) {
                         return buildSocialSuccessOutcome(
                             originalUrl = originalUrl,
                             providerLabel = providerLabel,
-                            title = fallbackTitle ?: buildSmartTitleFromUrl(targetUrl, providerLabel),
+                            title = fallbackTitle ?: respJson.optString("filename").substringBeforeLast('.').ifBlank {
+                                buildSmartTitleFromUrl(targetUrl, providerLabel)
+                            },
                             author = fallbackAuthor ?: "$providerLabel Creator",
                             thumbnailUrl = fallbackThumb,
                             videoStreamUrls = listOf(
@@ -721,133 +917,252 @@ class MediaAnalyzerEngine(
     }
 
     /**
-     * Guaranteed Universal Direct-Stream Bridge:
-     * When a social platform (such as an Instagram Reel with `?igsh=...`, private/rate-limited CDN, or encrypted HLS)
-     * hides its raw manifest from unauthenticated mobile scraping, this bridge constructs verified downloadable
-     * MP4 (1080p, 720p, 480p, 360p) and MP3 (320kbps, 192kbps, 128kbps) streams so the user can ALWAYS download
-     * video and audio without ever hitting ERR_PROVIDER_RESTRICTED.
+     * Direct YouTube Innertube Player API Extractor (`https://www.youtube.com/youtubei/v1/player`).
+     * Queries YouTube's official Innertube endpoint directly using ANDROID_VR, IOS, and ANDROID_TESTSUITE
+     * client profiles to retrieve the exact video's real signed googlevideo.com MP4 and M4A/MP3 streams!
      */
-    private fun buildGuaranteedSocialStreamOutcome(
+    private fun extractYouTubeViaInnertubeClients(
         originalUrl: String,
-        resolvedUrl: String,
-        providerLabel: String,
-        title: String,
-        author: String,
-        thumbnailUrl: String?
-    ): UrlAnalysisOutcome.Success {
-        val v1080 = VERIFIED_MP4_FALLBACK_MIRRORS[0]
-        val v720 = VERIFIED_MP4_FALLBACK_MIRRORS[1]
-        val v480 = VERIFIED_MP4_FALLBACK_MIRRORS[2]
-        val v360 = VERIFIED_MP4_FALLBACK_MIRRORS[3]
-        val a320 = VERIFIED_MP3_FALLBACK_MIRRORS[0]
+        videoId: String,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome? {
+        data class InnertubeProfile(
+            val clientName: String,
+            val clientVersion: String,
+            val userAgent: String,
+            val osName: String,
+            val osVersion: String,
+            val deviceMake: String = "",
+            val deviceModel: String = "",
+            val androidSdkVersion: Int? = null
+        )
 
-        val videoOptions = listOf(
-            QualityOption(
-                id = "univ_v_1080",
-                format = MediaFormat.MP4,
-                label = "1080p Full HD",
-                subLabel = "$providerLabel High-Bitrate MP4 Video + Audio",
-                badge = "Recommended",
-                resolutionOrBitrate = "1920×1080 • 60fps",
-                estimatedSizeBytes = 2_498_560L,
-                downloadUrl = v1080,
-                codec = "H.264 / AAC"
+        val profiles = listOf(
+            InnertubeProfile(
+                clientName = "ANDROID_VR",
+                clientVersion = "1.56.21",
+                userAgent = "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                osName = "Android",
+                osVersion = "12L",
+                deviceMake = "Oculus",
+                deviceModel = "Quest 3",
+                androidSdkVersion = 32
             ),
-            QualityOption(
-                id = "univ_v_720",
-                format = MediaFormat.MP4,
-                label = "720p HD",
-                subLabel = "$providerLabel Balanced HD Stream",
-                badge = "HD",
-                resolutionOrBitrate = "1280×720 • 30fps",
-                estimatedSizeBytes = 2_299_650L,
-                downloadUrl = v720,
-                codec = "H.264 / AAC"
+            InnertubeProfile(
+                clientName = "IOS",
+                clientVersion = "19.29.1",
+                userAgent = "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+                osName = "iOS",
+                osVersion = "17.5.1.21F90",
+                deviceMake = "Apple",
+                deviceModel = "iPhone16,2"
             ),
-            QualityOption(
-                id = "univ_v_480",
-                format = MediaFormat.MP4,
-                label = "480p Standard",
-                subLabel = "Fast Mobile Download",
-                badge = null,
-                resolutionOrBitrate = "854×480",
-                estimatedSizeBytes = 1_850_000L,
-                downloadUrl = v480,
-                codec = "H.264 / AAC"
-            ),
-            QualityOption(
-                id = "univ_v_360",
-                format = MediaFormat.MP4,
-                label = "360p Data Saver",
-                subLabel = "Compact MP4 Video",
-                badge = "Fastest",
-                resolutionOrBitrate = "640×360",
-                estimatedSizeBytes = 1_240_000L,
-                downloadUrl = v360,
-                codec = "H.264 / AAC"
+            InnertubeProfile(
+                clientName = "ANDROID",
+                clientVersion = "19.30.36",
+                userAgent = "com.google.android.youtube/19.30.36 (Linux; U; Android 14; en_US) gzip",
+                osName = "Android",
+                osVersion = "14",
+                androidSdkVersion = 34
             )
         )
 
-        val audioOptions = listOf(
-            QualityOption(
-                id = "univ_a_320",
-                format = MediaFormat.MP3,
-                label = "MP3 320kbps Studio",
-                subLabel = "$providerLabel Master Audio Extraction",
-                badge = "Best Audio",
-                resolutionOrBitrate = "320 kbps • 48kHz",
-                estimatedSizeBytes = 8_945_200L,
-                downloadUrl = a320,
-                codec = "MP3 LAME"
-            ),
-            QualityOption(
-                id = "univ_a_192",
-                format = MediaFormat.MP3,
-                label = "MP3 192kbps High",
-                subLabel = "High Clarity Audio Track",
-                badge = "HQ",
-                resolutionOrBitrate = "192 kbps • 44.1kHz",
-                estimatedSizeBytes = 5_420_000L,
-                downloadUrl = a320,
-                codec = "MP3 Audio"
-            ),
-            QualityOption(
-                id = "univ_a_128",
-                format = MediaFormat.MP3,
-                label = "MP3 128kbps Standard",
-                subLabel = "Compact Voice & Music Track",
-                badge = "Compact",
-                resolutionOrBitrate = "128 kbps • 44.1kHz",
-                estimatedSizeBytes = 3_610_000L,
-                downloadUrl = a320,
-                codec = "MP3 Audio"
-            )
-        )
+        for (profile in profiles) {
+            try {
+                val clientJson = JSONObject().apply {
+                    put("clientName", profile.clientName)
+                    put("clientVersion", profile.clientVersion)
+                    put("hl", "en")
+                    put("gl", "US")
+                    put("osName", profile.osName)
+                    put("osVersion", profile.osVersion)
+                    if (profile.deviceMake.isNotEmpty()) put("deviceMake", profile.deviceMake)
+                    if (profile.deviceModel.isNotEmpty()) put("deviceModel", profile.deviceModel)
+                    if (profile.androidSdkVersion != null) put("androidSdkVersion", profile.androidSdkVersion)
+                }
+                val payload = JSONObject().apply {
+                    put("videoId", videoId)
+                    put("context", JSONObject().put("client", clientJson))
+                    put("contentCheckOk", true)
+                    put("racyCheckOk", true)
+                }
 
-        return UrlAnalysisOutcome.Success(
-            MediaAnalysisResult(
-                mediaId = "social_${UUID.randomUUID().toString().take(8)}",
-                originalUrl = originalUrl,
-                normalizedUrl = resolvedUrl,
-                title = title,
-                authorOrChannel = author,
-                durationSeconds = 15,
-                durationFormatted = "0:15 • $providerLabel Stream",
-                providerId = "social_universal_share",
-                providerName = providerLabel,
-                providerBadgeColorHex = when (providerLabel) {
-                    "Instagram" -> 0xFFE1306C
-                    "YouTube" -> 0xFFEF4444
-                    "TikTok" -> 0xFF06B6D4
-                    else -> 0xFF3B82F6
-                },
-                thumbnailUrl = thumbnailUrl,
-                videoOptions = videoOptions,
-                audioOptions = audioOptions,
-                isAuthorizedStream = true,
-                securityNotice = "Direct $providerLabel MP4 & MP3 Stream Ready"
-            )
-        )
+                val req = Request.Builder()
+                    .url("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+                    .header("User-Agent", profile.userAgent)
+                    .header("Content-Type", "application/json")
+                    .header("X-YouTube-Client-Name", when (profile.clientName) {
+                        "IOS" -> "5"
+                        "ANDROID_VR" -> "28"
+                        else -> "3"
+                    })
+                    .header("X-YouTube-Client-Version", profile.clientVersion)
+                    .header("Origin", "https://www.youtube.com")
+                    .post(payload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                okHttpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val bodyStr = resp.body?.string().orEmpty()
+                    if (bodyStr.isBlank()) return@use
+                    val root = JSONObject(bodyStr)
+                    val playability = root.optJSONObject("playabilityStatus")?.optString("status")
+                    if (playability != "OK") return@use
+
+                    val videoDetails = root.optJSONObject("videoDetails")
+                    val title = videoDetails?.optString("title")?.takeIf { it.isNotBlank() }
+                        ?: fallbackTitle ?: "YouTube Video ($videoId)"
+                    val author = videoDetails?.optString("author")?.takeIf { it.isNotBlank() }
+                        ?: fallbackAuthor ?: "YouTube Creator"
+                    val durationSec = videoDetails?.optString("lengthSeconds")?.toIntOrNull() ?: 0
+                    val thumb = fallbackThumb ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+
+                    val streamingData = root.optJSONObject("streamingData") ?: return@use
+                    val muxedFormats = streamingData.optJSONArray("formats") ?: JSONArray()
+                    val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: JSONArray()
+
+                    val videoOptions = mutableListOf<QualityOption>()
+                    val audioOptions = mutableListOf<QualityOption>()
+
+                    // 1. Combined Video + Audio MP4 streams (formats)
+                    for (i in 0 until muxedFormats.length()) {
+                        val fmt = muxedFormats.optJSONObject(i) ?: continue
+                        val url = fmt.optString("url").takeIf { it.startsWith("http") } ?: continue
+                        val mimeType = fmt.optString("mimeType", "video/mp4")
+                        val qualityLabel = fmt.optString("qualityLabel").ifBlank {
+                            val h = fmt.optInt("height", 360)
+                            "${h}p"
+                        }
+                        val width = fmt.optInt("width", 0)
+                        val height = fmt.optInt("height", 0)
+                        val contentLength = fmt.optString("contentLength").toLongOrNull() ?: -1L
+                        val fps = fmt.optInt("fps", 30)
+
+                        videoOptions.add(
+                            QualityOption(
+                                id = "yt_mux_${fmt.optInt("itag", i)}_$qualityLabel",
+                                format = MediaFormat.MP4,
+                                label = "$qualityLabel Full MP4 (Video + Audio)",
+                                subLabel = "Direct YouTube Stream • ${if (width > 0) "${width}×${height} • " else ""}${fps}fps",
+                                badge = if (height >= 720) "Recommended" else "Direct MP4",
+                                resolutionOrBitrate = if (width > 0) "${width}×${height}" else qualityLabel,
+                                estimatedSizeBytes = contentLength,
+                                downloadUrl = url,
+                                codec = mimeType.substringBefore(';').uppercase()
+                            )
+                        )
+                    }
+
+                    // 2. Adaptive MP4 Video streams & M4A/WebM Audio streams
+                    for (i in 0 until adaptiveFormats.length()) {
+                        val fmt = adaptiveFormats.optJSONObject(i) ?: continue
+                        val url = fmt.optString("url").takeIf { it.startsWith("http") } ?: continue
+                        val mimeType = fmt.optString("mimeType", "")
+                        val contentLength = fmt.optString("contentLength").toLongOrNull() ?: -1L
+                        val bitrate = fmt.optInt("bitrate", 128000) / 1000
+
+                        if (mimeType.startsWith("audio/")) {
+                            val isMp4Audio = mimeType.contains("mp4") || mimeType.contains("m4a")
+                            audioOptions.add(
+                                QualityOption(
+                                    id = "yt_aud_${fmt.optInt("itag", i)}_$bitrate",
+                                    format = MediaFormat.MP3,
+                                    label = "Audio ${bitrate}kbps (${if (isMp4Audio) "AAC / M4A" else "Opus"})",
+                                    subLabel = "Direct YouTube Master Audio Track",
+                                    badge = if (bitrate >= 128) "Best Audio" else null,
+                                    resolutionOrBitrate = "$bitrate kbps",
+                                    estimatedSizeBytes = contentLength,
+                                    downloadUrl = url,
+                                    codec = mimeType.substringBefore(';').uppercase()
+                                )
+                            )
+                        } else if (mimeType.startsWith("video/mp4") && videoOptions.size < 4) {
+                            val qualityLabel = fmt.optString("qualityLabel").ifBlank { "${fmt.optInt("height", 720)}p" }
+                            val height = fmt.optInt("height", 0)
+                            val width = fmt.optInt("width", 0)
+                            if (videoOptions.none { it.label.startsWith(qualityLabel) }) {
+                                videoOptions.add(
+                                    QualityOption(
+                                        id = "yt_adap_${fmt.optInt("itag", i)}_$qualityLabel",
+                                        format = MediaFormat.MP4,
+                                        label = "$qualityLabel HD Stream",
+                                        subLabel = "YouTube High-Bitrate Stream",
+                                        badge = if (height >= 1080) "1080p" else null,
+                                        resolutionOrBitrate = if (width > 0) "${width}×${height}" else qualityLabel,
+                                        estimatedSizeBytes = contentLength,
+                                        downloadUrl = url,
+                                        codec = "H.264 / MP4"
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Check HLS manifest if muxed formats were empty (e.g. iOS client)
+                    val hlsManifestUrl = streamingData.optString("hlsManifestUrl").takeIf { it.startsWith("http") }
+                    if (videoOptions.isEmpty() && hlsManifestUrl != null) {
+                        videoOptions.add(
+                            QualityOption(
+                                id = "yt_hls_1080",
+                                format = MediaFormat.MP4,
+                                label = "1080p Full HD Stream",
+                                subLabel = "Direct YouTube HLS Video + Audio",
+                                badge = "Recommended",
+                                resolutionOrBitrate = "1080p HD",
+                                estimatedSizeBytes = -1L,
+                                downloadUrl = hlsManifestUrl,
+                                codec = "H.264 / AAC"
+                            )
+                        )
+                    }
+
+                    if (audioOptions.isEmpty() && videoOptions.isNotEmpty()) {
+                        audioOptions.add(
+                            QualityOption(
+                                id = "yt_aud_from_mux",
+                                format = MediaFormat.MP3,
+                                label = "MP3 / Audio Track (192kbps)",
+                                subLabel = "Direct Audio from YouTube Stream",
+                                badge = "HQ",
+                                resolutionOrBitrate = "192 kbps",
+                                estimatedSizeBytes = videoOptions.first().estimatedSizeBytes,
+                                downloadUrl = videoOptions.first().downloadUrl,
+                                codec = "AAC / MP4"
+                            )
+                        )
+                    }
+
+                    if (videoOptions.isNotEmpty() || audioOptions.isNotEmpty()) {
+                        return UrlAnalysisOutcome.Success(
+                            MediaAnalysisResult(
+                                mediaId = "yt_$videoId",
+                                originalUrl = originalUrl,
+                                normalizedUrl = originalUrl,
+                                title = title,
+                                authorOrChannel = author,
+                                durationSeconds = durationSec,
+                                durationFormatted = if (durationSec > 0) "${durationSec / 60}:${(durationSec % 60).toString().padStart(2, '0')}" else "YouTube Video",
+                                providerId = "social_universal_share",
+                                providerName = "YouTube",
+                                providerBadgeColorHex = 0xFFEF4444,
+                                thumbnailUrl = thumb,
+                                videoOptions = videoOptions,
+                                audioOptions = audioOptions.sortedByDescending {
+                                    it.resolutionOrBitrate.filter { c -> c.isDigit() }.toIntOrNull() ?: 0
+                                },
+                                isAuthorizedStream = true,
+                                securityNotice = "Verified YouTube Direct Media Stream ($videoId)"
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {
+                // Try next Innertube profile
+            }
+        }
+        return null
     }
 
     private fun extractYouTubeVideoId(url: String, path: String): String? {
@@ -1459,13 +1774,11 @@ class MediaAnalyzerEngine(
                     }
                 }
             } catch (e: IOException) {
-                return buildGuaranteedSocialStreamOutcome(
-                    originalUrl = url,
-                    resolvedUrl = url,
-                    providerLabel = host,
-                    title = buildSmartTitleFromUrl(url, host),
-                    author = host,
-                    thumbnailUrl = null
+                return UrlAnalysisOutcome.Error(
+                    title = "Network Connection Error",
+                    message = "Unable to connect to $host (${e.localizedMessage ?: "Connection failed"}).",
+                    recoverySuggestion = "Check your internet connection and verify the link is accessible.",
+                    errorCode = "ERR_NETWORK_UNREACHABLE"
                 )
             }
         }
@@ -1492,14 +1805,11 @@ class MediaAnalyzerEngine(
                 )
             }
 
-            // Even if HTML page didn't expose raw <video> tags, provide universal downloadable streams
-            return buildGuaranteedSocialStreamOutcome(
-                originalUrl = url,
-                resolvedUrl = url,
-                providerLabel = host,
-                title = scraped.title ?: buildSmartTitleFromUrl(url, host),
-                author = scraped.author ?: host,
-                thumbnailUrl = scraped.thumbnailUrl
+            return UrlAnalysisOutcome.Error(
+                title = "No Downloadable Media Found",
+                message = "The webpage at $host did not expose a direct video or audio stream.",
+                recoverySuggestion = "Share a direct video/audio post link rather than a general webpage.",
+                errorCode = "ERR_NO_EMBEDDED_MEDIA"
             )
         }
 
