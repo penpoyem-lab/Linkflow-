@@ -45,6 +45,8 @@ class DownloadQueueManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val pausedFlags = ConcurrentHashMap<String, Boolean>()
+    // Enforce concurrent download limit (maximum 3 simultaneous HTTP streams)
+    private val concurrencySemaphore = kotlinx.coroutines.sync.Semaphore(permits = 3)
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -67,6 +69,29 @@ class DownloadQueueManager(
             baseDir.mkdirs()
         }
         return baseDir
+    }
+
+    /**
+     * Reconciles and resumes any downloads that were in QUEUED, ANALYZING, PREPARING, or DOWNLOADING
+     * states when the app process was restarted.
+     */
+    fun resumeInterruptedDownloadsOnStartup() {
+        scope.launch {
+            runCatching {
+                val allTasks = dao.getAllDownloadsSnapshot()
+                val activeStates = setOf(
+                    DownloadJobState.QUEUED.name,
+                    DownloadJobState.ANALYZING.name,
+                    DownloadJobState.PREPARING.name,
+                    DownloadJobState.DOWNLOADING.name
+                )
+                for (task in allTasks) {
+                    if (task.state in activeStates && !activeJobs.containsKey(task.jobId)) {
+                        startJobExecution(task.jobId)
+                    }
+                }
+            }
+        }
     }
 
     suspend fun enqueueDownload(
@@ -214,9 +239,12 @@ class DownloadQueueManager(
 
         val job = scope.launch {
             val tempFilesToClean = mutableListOf<File>()
+            var permitAcquired = false
             try {
+                concurrencySemaphore.acquire()
+                permitAcquired = true
                 var task = dao.getDownloadById(jobId) ?: return@launch
-                val destinationFile = File(getDownloadsDirectory(), task.fileName)
+                var destinationFile = File(getDownloadsDirectory(), task.fileName)
                 val partFile = File(getDownloadsDirectory(), "${task.fileName}.part")
                 tempFilesToClean.add(partFile)
 
@@ -231,7 +259,7 @@ class DownloadQueueManager(
                 // Resolve candidate download URLs so MP4/MP3 streams never fail due to expired CDN tokens or HTML wrappers
                 val (candidateUrls, refreshedCompanionAudio) = buildOrderedCandidateStreamUrls(task)
                 if (candidateUrls.isEmpty()) {
-                    throw IOException("Could not resolve a valid direct media stream from ${task.providerName}")
+                    throw IOException("Could not resolve a valid authorized media stream from ${task.providerName}")
                 }
 
                 task = task.copy(
@@ -252,6 +280,7 @@ class DownloadQueueManager(
 
                 var lastError: Exception? = null
                 var downloadSucceeded = false
+                var detectedBinaryFormat: String? = null
 
                 for ((attemptIdx, candidateUrl) in candidateUrls.withIndex()) {
                     if (!isActive || pausedFlags[jobId] == true) return@launch
@@ -279,6 +308,7 @@ class DownloadQueueManager(
 
                         val validation = MediaStreamValidator.validateDownloadedMediaFile(partFile)
                         if (validation.isValid) {
+                            detectedBinaryFormat = validation.detectedFormat
                             if (destinationFile.exists()) {
                                 runCatching { destinationFile.delete() }
                             }
@@ -304,12 +334,60 @@ class DownloadQueueManager(
                 if (!downloadSucceeded) {
                     runCatching { if (partFile.exists()) partFile.delete() }
                     runCatching { if (destinationFile.exists() && destinationFile.length() == 0L) destinationFile.delete() }
-                    throw lastError ?: IOException("Unable to download MP4/MP3 stream from any mirror")
+                    throw lastError ?: IOException("Unable to download media stream from any authorized mirror")
                 }
 
                 if (!isActive || pausedFlags[jobId] == true) return@launch
 
-                // If this high-resolution video option (e.g. 4K / 2K / 1080p60 / Reddit DASH) has a separate companion audio track,
+                // NEVER rename an MP4 container to .mp3!
+                // If an audio format (MP3 or M4A) was requested, and the downloaded binary is an MP4/MOV video container,
+                // demux the genuine AAC audio track into an M4A container or update the extension accurately.
+                val requestedAudio = task.format.equals(MediaFormat.MP3.name, ignoreCase = true) ||
+                    task.format.equals(MediaFormat.M4A.name, ignoreCase = true)
+                if (requestedAudio && detectedBinaryFormat == "MP4/M4A") {
+                    val demuxedAudioFile = File(getDownloadsDirectory(), "${task.jobId}_demuxed_audio.m4a")
+                    tempFilesToClean.add(demuxedAudioFile)
+                    val demuxOk = extractAudioTrackFromContainerToM4a(
+                        sourceContainerFile = destinationFile,
+                        outputM4aFile = demuxedAudioFile
+                    )
+                    if (demuxOk && demuxedAudioFile.exists() && demuxedAudioFile.length() > 512L) {
+                        val correctedFileName = task.fileName.substringBeforeLast('.') + ".m4a"
+                        val correctedDestFile = File(getDownloadsDirectory(), correctedFileName)
+                        runCatching { destinationFile.delete() }
+                        if (correctedDestFile.exists()) runCatching { correctedDestFile.delete() }
+                        val renamed = demuxedAudioFile.renameTo(correctedDestFile)
+                        if (!renamed) {
+                            demuxedAudioFile.copyTo(correctedDestFile, overwrite = true)
+                            demuxedAudioFile.delete()
+                        }
+                        destinationFile = correctedDestFile
+                        task = (dao.getDownloadById(jobId) ?: task).copy(
+                            format = MediaFormat.M4A.name,
+                            fileName = correctedFileName
+                        )
+                        dao.upsertDownload(task)
+                    } else if (task.format.equals(MediaFormat.MP3.name, ignoreCase = true)) {
+                        // Do not save an MP4/M4A stream with a fake .mp3 extension
+                        val correctedFileName = task.fileName.substringBeforeLast('.') + ".m4a"
+                        val correctedDestFile = File(getDownloadsDirectory(), correctedFileName)
+                        if (destinationFile != correctedDestFile) {
+                            val renamed = destinationFile.renameTo(correctedDestFile)
+                            if (!renamed) {
+                                destinationFile.copyTo(correctedDestFile, overwrite = true)
+                                destinationFile.delete()
+                            }
+                            destinationFile = correctedDestFile
+                            task = (dao.getDownloadById(jobId) ?: task).copy(
+                                format = MediaFormat.M4A.name,
+                                fileName = correctedFileName
+                            )
+                            dao.upsertDownload(task)
+                        }
+                    }
+                }
+
+                // If this high-resolution video option (e.g. Reddit DASH) has a separate companion audio track,
                 // download the companion audio stream and hardware-mux Video + Audio into a single playable MP4 container!
                 val companionAudio = task.companionAudioUrl
                 if (!companionAudio.isNullOrBlank() &&
@@ -359,7 +437,7 @@ class DownloadQueueManager(
                 val latestBeforeProcess = dao.getDownloadById(jobId) ?: return@launch
                 val finalSize = destinationFile.length()
 
-                // Export completed MP4/MP3 to Android MediaStore (Movies/LinkFlow or Music/LinkFlow & Downloads/LinkFlow)
+                // Export completed media file to Android MediaStore (Movies/LinkFlow or Music/LinkFlow & Downloads/LinkFlow)
                 // so it appears immediately in the user's Gallery, Files, and Video/Music player apps.
                 runCatching {
                     exportCompletedFileToSystemMediaStore(
@@ -412,6 +490,9 @@ class DownloadQueueManager(
                     )
                 }
             } finally {
+                if (permitAcquired) {
+                    concurrencySemaphore.release()
+                }
                 activeJobs.remove(jobId)
             }
         }
@@ -502,7 +583,30 @@ class DownloadQueueManager(
         }.getOrDefault("https://www.google.com/")
 
         val existingBytes = if (destinationFile.exists()) destinationFile.length() else 0L
-        val useRangeResume = existingBytes > 0L && task.downloadedBytes > 0L
+        var useRangeResume = existingBytes > 0L && task.downloadedBytes > 0L
+
+        // Validate server support for byte-range requests (Accept-Ranges: bytes) before attempting resume
+        if (useRangeResume) {
+            val supportsRanges = runCatching {
+                val headReq = Request.Builder()
+                    .url(targetUrl)
+                    .head()
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) LinkFlow/2.4")
+                    .header("Referer", refererOrigin)
+                    .build()
+                okHttpClient.newCall(headReq).execute().use { headResp ->
+                    val acceptRanges = headResp.header("Accept-Ranges")?.lowercase().orEmpty()
+                    acceptRanges.contains("bytes")
+                }
+            }.getOrDefault(true)
+
+            if (!supportsRanges) {
+                useRangeResume = false
+                if (destinationFile.exists()) {
+                    runCatching { destinationFile.delete() }
+                }
+            }
+        }
 
         var response = executeStreamRequest(
             targetUrl = targetUrl,
@@ -842,7 +946,63 @@ class DownloadQueueManager(
     }
 
     /**
-     * Exports the downloaded MP4 or MP3 into Android's public MediaStore / Downloads collection
+     * Uses Android's native hardware [MediaExtractor] and [MediaMuxer] to losslessly demux
+     * the AAC/M4A audio track out of an MP4 video container into a genuine `.m4a` audio file.
+     */
+    private fun extractAudioTrackFromContainerToM4a(
+        sourceContainerFile: File,
+        outputM4aFile: File
+    ): Boolean {
+        var extractor: MediaExtractor? = null
+        var muxer: MediaMuxer? = null
+        return try {
+            extractor = MediaExtractor().apply { setDataSource(sourceContainerFile.absolutePath) }
+            var audioTrackIndex = -1
+            var audioFormat: AndroidMediaFormat? = null
+            for (i in 0 until extractor.trackCount) {
+                val fmt = extractor.getTrackFormat(i)
+                val mime = fmt.getString(AndroidMediaFormat.KEY_MIME).orEmpty()
+                if (mime.startsWith("audio/")) {
+                    extractor.selectTrack(i)
+                    audioTrackIndex = i
+                    audioFormat = fmt
+                    break
+                }
+            }
+            if (audioTrackIndex < 0 || audioFormat == null) return false
+
+            muxer = MediaMuxer(outputM4aFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val destTrack = muxer.addTrack(audioFormat)
+            muxer.start()
+
+            val buffer = ByteBuffer.allocate(512 * 1024)
+            val bufferInfo = MediaCodec.BufferInfo()
+            while (true) {
+                bufferInfo.offset = 0
+                bufferInfo.size = extractor.readSampleData(buffer, 0)
+                if (bufferInfo.size < 0) break
+                bufferInfo.presentationTimeUs = extractor.sampleTime
+                val sampleFlags = extractor.sampleFlags
+                bufferInfo.flags = if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+                    MediaCodec.BUFFER_FLAG_KEY_FRAME
+                } else {
+                    0
+                }
+                muxer.writeSampleData(destTrack, buffer, bufferInfo)
+                extractor.advance()
+            }
+            muxer.stop()
+            true
+        } catch (_: Exception) {
+            false
+        } finally {
+            runCatching { extractor?.release() }
+            runCatching { muxer?.release() }
+        }
+    }
+
+    /**
+     * Exports the downloaded media file into Android's public MediaStore / Downloads collection
      * on API 29+ (or scans external media on older APIs) so the user can view the video/audio
      * directly in their system Gallery, Video Player, Music Player, and Files apps.
      */
@@ -852,8 +1012,9 @@ class DownloadQueueManager(
         format: String
     ) {
         if (!file.exists() || file.length() <= 0L) return
-        val isAudio = format.equals("MP3", ignoreCase = true)
-        val mimeType = if (isAudio) "audio/mpeg" else "video/mp4"
+        val mediaFormat = runCatching { MediaFormat.valueOf(format.uppercase()) }.getOrDefault(MediaFormat.MP4)
+        val isAudio = !mediaFormat.isVideo
+        val mimeType = mediaFormat.mimeType
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val resolver = context.contentResolver

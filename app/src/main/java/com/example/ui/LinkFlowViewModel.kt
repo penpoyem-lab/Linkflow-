@@ -120,6 +120,7 @@ class LinkFlowViewModel(
 
     init {
         cleanupStaleZeroByteDownloadsOnStartup()
+        queueManager.resumeInterruptedDownloadsOnStartup()
         refreshStorageMetrics()
     }
 
@@ -286,7 +287,7 @@ class LinkFlowViewModel(
                     val preferredFmt = _uiState.value.quickFormatSelection
                     val defaultOption = chooseDefaultOption(result, preferredFmt)
 
-                    val bestLabel = defaultOption?.label ?: "Direct Stream"
+                    val bestLabel = defaultOption?.label ?: "Metadata Preview"
                     val estBytes = defaultOption?.estimatedSizeBytes ?: 0L
                     dao.upsertRecentAnalysis(
                         RecentAnalysisEntity(
@@ -300,11 +301,15 @@ class LinkFlowViewModel(
                             availableFormatsLabel = buildString {
                                 if (result.videoOptions.isNotEmpty()) append("MP4")
                                 if (result.videoOptions.isNotEmpty() && result.audioOptions.isNotEmpty()) append(" • ")
-                                if (result.audioOptions.isNotEmpty()) append("MP3")
-                            }.ifBlank { "Stream" },
+                                if (result.audioOptions.isNotEmpty()) append("Audio")
+                            }.ifBlank { "Metadata Preview" },
                             estimatedSizeBytes = estBytes,
-                            isSupportedForDownload = result.isAuthorizedStream,
-                            statusNote = "Verified & Ready",
+                            isSupportedForDownload = result.isAuthorizedStream && (result.videoOptions.isNotEmpty() || result.audioOptions.isNotEmpty()),
+                            statusNote = if (result.isAuthorizedStream && (result.videoOptions.isNotEmpty() || result.audioOptions.isNotEmpty())) {
+                                "Verified & Ready"
+                            } else {
+                                "Metadata Preview Only"
+                            },
                             analyzedAt = System.currentTimeMillis()
                         )
                     )
@@ -376,7 +381,11 @@ class LinkFlowViewModel(
         val option = _uiState.value.selectedQualityOption ?: chooseDefaultOption(
             analysis,
             _uiState.value.quickFormatSelection
-        ) ?: return
+        )
+        if (option == null || !analysis.isAuthorizedStream) {
+            showToast(analysis.authorizationLimitationNotice ?: "Direct file download is not authorized by ${analysis.providerName} API.")
+            return
+        }
 
         viewModelScope.launch {
             val jobId = queueManager.enqueueDownload(analysis, option)

@@ -122,7 +122,11 @@ fun LibraryScreen(
 
     val filteredAndSorted = completedFiles
         .filter { item ->
-            val matchesFormat = formatFilter == null || item.format.equals(formatFilter.name, ignoreCase = true)
+            val matchesFormat = when (formatFilter) {
+            null -> true
+            MediaFormat.MP4, MediaFormat.WEBM -> item.format.equals("MP4", ignoreCase = true) || item.format.equals("WEBM", ignoreCase = true)
+            MediaFormat.MP3, MediaFormat.M4A, MediaFormat.WAV -> item.format.equals("MP3", ignoreCase = true) || item.format.equals("M4A", ignoreCase = true) || item.format.equals("WAV", ignoreCase = true)
+        }
             val matchesQuery = searchQuery.isBlank() ||
                 item.title.contains(searchQuery.trim(), ignoreCase = true) ||
                 item.fileName.contains(searchQuery.trim(), ignoreCase = true) ||

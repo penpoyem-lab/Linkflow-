@@ -15,6 +15,9 @@ interface LinkFlowDao {
     @Query("SELECT * FROM download_tasks ORDER BY createdAt DESC")
     fun observeAllDownloads(): Flow<List<DownloadTaskEntity>>
 
+    @Query("SELECT * FROM download_tasks ORDER BY createdAt DESC")
+    suspend fun getAllDownloadsSnapshot(): List<DownloadTaskEntity>
+
     @Query("SELECT * FROM download_tasks WHERE jobId = :jobId LIMIT 1")
     fun observeDownloadById(jobId: String): Flow<DownloadTaskEntity?>
 

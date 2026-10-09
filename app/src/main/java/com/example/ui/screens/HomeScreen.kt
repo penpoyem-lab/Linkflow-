@@ -48,11 +48,13 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -765,8 +767,8 @@ private fun FormatSelectorBar(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                MediaFormat.entries.forEach { format ->
-                    val isSelected = selectedFormat == format
+                listOf(MediaFormat.MP4, MediaFormat.MP3).forEach { format ->
+                    val isSelected = selectedFormat == format || (format == MediaFormat.MP4 && selectedFormat.isVideo) || (format == MediaFormat.MP3 && !selectedFormat.isVideo)
                     val scale by animateFloatAsState(
                         targetValue = if (isSelected) 1.0f else 0.96f,
                         animationSpec = spring(
@@ -856,6 +858,8 @@ private fun AnalyzedMediaPreviewCard(
     onOpenQualityOptions: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val hasDownloadableOptions = analysis.isAuthorizedStream && (analysis.videoOptions.isNotEmpty() || analysis.audioOptions.isNotEmpty())
     LiquidGlassCard(
         cornerRadius = 24.dp,
         isHighlighted = true,
@@ -880,19 +884,27 @@ private fun AnalyzedMediaPreviewCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector = if (hasDownloadableOptions) Icons.Default.CheckCircle else Icons.Default.Info,
                         contentDescription = null,
-                        tint = tokens.successColor,
+                        tint = if (hasDownloadableOptions) tokens.successColor else tokens.accentCyan,
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "STREAM VERIFIED • ${analysis.providerName.uppercase()}",
+                        text = if (hasDownloadableOptions) {
+                            "STREAM VERIFIED • ${analysis.providerName.uppercase()}"
+                        } else {
+                            "OFFICIAL METADATA PREVIEW • ${analysis.providerName.uppercase()}"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = tokens.accentCyan
                     )
                 }
                 Text(
-                    text = "${analysis.videoOptions.size} MP4 • ${analysis.audioOptions.size} MP3",
+                    text = if (hasDownloadableOptions) {
+                        "${analysis.videoOptions.size} Video • ${analysis.audioOptions.size} Audio"
+                    } else {
+                        "Provider Restricted"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -930,7 +942,7 @@ private fun AnalyzedMediaPreviewCard(
                         )
                     } else {
                         Icon(
-                            imageVector = if (selectedFormat == MediaFormat.MP3 || (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty())) {
+                            imageVector = if (!selectedFormat.isVideo || (analysis.audioOptions.isNotEmpty() && analysis.videoOptions.isEmpty())) {
                                 Icons.Default.AudioFile
                             } else {
                                 Icons.Default.VideoFile
@@ -959,27 +971,59 @@ private fun AnalyzedMediaPreviewCard(
                 }
             }
 
+            if (!analysis.authorizationLimitationNotice.isNullOrBlank()) {
+                Text(
+                    text = analysis.authorizationLimitationNotice,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("authorization_limitation_notice")
+                )
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                LiquidGlassPrimaryButton(
-                    text = "Download ${selectedFormat.name} Now",
-                    icon = Icons.Default.Download,
-                    onClick = onQuickDownload,
-                    cornerRadius = 16.dp,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("quick_download_now_button")
-                )
+                if (hasDownloadableOptions) {
+                    LiquidGlassPrimaryButton(
+                        text = "Download ${selectedFormat.name} Now",
+                        icon = Icons.Default.Download,
+                        onClick = onQuickDownload,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("quick_download_now_button")
+                    )
 
-                LiquidGlassSecondaryButton(
-                    text = "Qualities",
-                    onClick = onOpenQualityOptions,
-                    cornerRadius = 16.dp,
-                    modifier = Modifier
-                        .testTag("open_quality_selector_button")
-                )
+                    LiquidGlassSecondaryButton(
+                        text = "Qualities",
+                        onClick = onOpenQualityOptions,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier
+                            .testTag("open_quality_selector_button")
+                    )
+                } else {
+                    val launchTarget = analysis.externalLaunchUrl ?: analysis.originalUrl
+                    LiquidGlassPrimaryButton(
+                        text = "Open in ${analysis.providerName}",
+                        icon = Icons.Default.PlayArrow,
+                        onClick = {
+                            runCatching { uriHandler.openUri(launchTarget) }
+                        },
+                        cornerRadius = 16.dp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("open_in_external_provider_button")
+                    )
+
+                    LiquidGlassSecondaryButton(
+                        text = "Details",
+                        onClick = onOpenQualityOptions,
+                        cornerRadius = 16.dp,
+                        modifier = Modifier
+                            .testTag("open_quality_selector_button")
+                    )
+                }
             }
         }
     }

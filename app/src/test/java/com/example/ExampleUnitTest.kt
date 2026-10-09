@@ -36,12 +36,27 @@ class ExampleUnitTest {
 
     @Test
     fun `direct mp4 url is analyzed and returns real video option`() = runBlocking {
-        val directUrl = "https://archive.org/download/sample_video_stream/sample_clip.mp4"
-        val outcome = engine.analyzeUrl(directUrl)
+        val directUrl = "https://cdn.example.com/media/sample_clip.mp4"
+        val mockClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                okhttp3.Response.Builder()
+                    .request(chain.request())
+                    .protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .header("Content-Type", "video/mp4")
+                    .header("Content-Length", "8388608")
+                    .body(okhttp3.ResponseBody.create(null, ""))
+                    .build()
+            }
+            .build()
+        val testEngine = MediaAnalyzerEngine(mockClient)
+        val outcome = testEngine.analyzeUrl(directUrl)
         assertTrue(outcome is UrlAnalysisOutcome.Success)
         val result = (outcome as UrlAnalysisOutcome.Success).result
         assertTrue(result.videoOptions.isNotEmpty())
         assertEquals(directUrl, result.videoOptions.first().downloadUrl)
+        assertEquals(8388608L, result.videoOptions.first().estimatedSizeBytes)
     }
 
     @Test

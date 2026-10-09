@@ -1,8 +1,16 @@
 package com.example.data.model
 
-enum class MediaFormat(val label: String, val extension: String) {
-    MP4("MP4 Video", "mp4"),
-    MP3("MP3 Audio", "mp3")
+enum class MediaFormat(
+    val label: String,
+    val extension: String,
+    val mimeType: String,
+    val isVideo: Boolean
+) {
+    MP4("MP4 Video", "mp4", "video/mp4", true),
+    WEBM("WebM Video", "webm", "video/webm", true),
+    MP3("MP3 Audio", "mp3", "audio/mpeg", false),
+    M4A("M4A Audio", "m4a", "audio/mp4", false),
+    WAV("WAV Audio", "wav", "audio/wav", false)
 }
 
 enum class DownloadJobState(val displayName: String) {
@@ -28,6 +36,9 @@ data class QualityOption(
     val downloadUrl: String,
     val companionAudioUrl: String? = null,
     val codec: String,
+    val containerExtension: String = format.extension,
+    val requiresAudioExtraction: Boolean = false,
+    val requiresAudioExtractionFromVideo: Boolean = false,
     val includesAudio: Boolean = true,
     val isAvailable: Boolean = true,
     val unavailableReason: String? = null
@@ -49,6 +60,8 @@ data class MediaAnalysisResult(
     val audioOptions: List<QualityOption>,
     val isAuthorizedStream: Boolean = true,
     val securityNotice: String? = null,
+    val externalLaunchUrl: String? = null,
+    val authorizationLimitationNotice: String? = null,
     val analyzedAt: Long = System.currentTimeMillis()
 )
 

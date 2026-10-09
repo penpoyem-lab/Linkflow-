@@ -79,6 +79,8 @@ fun QualitySelectorSheet(
     onDismiss: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val hasDownloadableOptions = analysis.isAuthorizedStream && (analysis.videoOptions.isNotEmpty() || analysis.audioOptions.isNotEmpty())
     val activeSelection = selectedOption
         ?: analysis.videoOptions.find { it.badge == "Recommended" }
         ?: analysis.videoOptions.firstOrNull()
@@ -189,6 +191,39 @@ fun QualitySelectorSheet(
                         .fillMaxWidth(),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
+                    if (!hasDownloadableOptions) {
+                        item {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 22.dp, vertical = 16.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(Color(0x331E294B))
+                                    .border(1.dp, tokens.accentCyan.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
+                                    .padding(18.dp)
+                                    .testTag("sheet_provider_limitation_card"),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Text(
+                                    text = "Official ${analysis.providerName} Metadata Preview",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Channel: ${analysis.authorOrChannel} • Duration: ${analysis.durationFormatted}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = tokens.accentCyan
+                                )
+                                Text(
+                                    text = analysis.authorizationLimitationNotice
+                                        ?: "Direct file downloads are not authorized by the official ${analysis.providerName} API for this video.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFCBD5E1)
+                                )
+                            }
+                        }
+                    }
+
                     if (analysis.videoOptions.isNotEmpty()) {
                         item {
                             Text(
@@ -306,7 +341,7 @@ fun QualitySelectorSheet(
                     }
                 }
 
-                // Bottom CTA "Download Selected" button & footnote matching Image 3
+                // Bottom CTA "Download Selected" or "Open in Official App" button & footnote
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -314,21 +349,41 @@ fun QualitySelectorSheet(
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    LiquidGlassPrimaryButton(
-                        text = "Download Selected",
-                        icon = Icons.Default.ExpandMore,
-                        onClick = onStartDownload,
-                        cornerRadius = 20.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(54.dp)
-                            .testTag("download_selected_button")
-                    )
+                    if (hasDownloadableOptions) {
+                        LiquidGlassPrimaryButton(
+                            text = "Download Selected",
+                            icon = Icons.Default.ExpandMore,
+                            onClick = onStartDownload,
+                            cornerRadius = 20.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                                .testTag("download_selected_button")
+                        )
+                    } else {
+                        val launchUrl = analysis.externalLaunchUrl ?: analysis.originalUrl
+                        LiquidGlassPrimaryButton(
+                            text = "Open in ${analysis.providerName}",
+                            icon = Icons.Default.PlayArrow,
+                            onClick = {
+                                runCatching { uriHandler.openUri(launchUrl) }
+                            },
+                            cornerRadius = 20.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                                .testTag("open_external_from_sheet_button")
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Download will use cellular data • Manage in Settings",
+                        text = if (hasDownloadableOptions) {
+                            "Download will use cellular data • Manage in Settings"
+                        } else {
+                            "Official Provider Metadata • Opens in ${analysis.providerName}"
+                        },
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                         color = Color(0xFF94A3B8)
                     )

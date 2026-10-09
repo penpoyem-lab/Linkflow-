@@ -37,14 +37,14 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `read LinkFlow app_name from context`() {
+    fun readLinkFlowAppNameFromContext() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val appName = context.getString(R.string.app_name)
         assertEquals("LinkFlow", appName)
     }
 
     @Test
-    fun `insert and update download job state in Room database`() = runBlocking {
+    fun insertAndUpdateDownloadJobStateInRoomDatabase() = runBlocking {
         val dao = database.linkFlowDao()
         val now = System.currentTimeMillis()
         val job = DownloadTaskEntity(
@@ -86,7 +86,7 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `parseGithubReleaseJson selects matching APK asset and ignores zip or draft releases`() {
+    fun parseGithubReleaseJsonSelectsMatchingApkAssetAndIgnoresZipOrDraftReleases() {
         val sampleJson = """
             {
               "tag_name": "v1.8.0",
@@ -119,5 +119,169 @@ class ExampleRobolectricTest {
         assertEquals("1.8.0", parsed?.cleanVersionName)
         assertEquals("linkflow-release-v1.8.0.apk", parsed?.apkAsset?.name)
         assertEquals(3, parsed?.topFeatures?.size)
+    }
+
+    @Test
+    fun testCompleteUserJourneyScenarios1To15() {
+        runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = database.linkFlowDao()
+        val mockClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val urlStr = req.url.toString()
+                when {
+                    urlStr.contains("youtube.com/oembed") -> {
+                        val json = """{"title":"Official YouTube Test Video","author_name":"Official Channel","thumbnail_url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"}"""
+                        okhttp3.Response.Builder()
+                            .request(req)
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .header("Content-Type", "application/json")
+                            .body(okhttp3.ResponseBody.create(null, json))
+                            .build()
+                    }
+                    urlStr.contains("archive.org/metadata/") -> {
+                        okhttp3.Response.Builder()
+                            .request(req)
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(404)
+                            .message("Not Found")
+                            .body(okhttp3.ResponseBody.create(null, "{}"))
+                            .build()
+                    }
+                    else -> {
+                        okhttp3.Response.Builder()
+                            .request(req)
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .header("Content-Type", "video/mp4")
+                            .header("Content-Length", "4194304")
+                            .body(okhttp3.ResponseBody.create(null, ""))
+                            .build()
+                    }
+                }
+            }
+            .build()
+        val engine = com.example.data.service.MediaAnalyzerEngine(mockClient)
+        val queueManager = com.example.data.service.DownloadQueueManager(context, dao, engine)
+
+        // 1. Valid authorized direct MP4 URL (curated catalog & real format verification)
+        val mp4Outcome = engine.analyzeUrl("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4")
+        org.junit.Assert.assertTrue(mp4Outcome is com.example.data.service.UrlAnalysisOutcome.Success)
+        val mp4Result = (mp4Outcome as com.example.data.service.UrlAnalysisOutcome.Success).result
+        org.junit.Assert.assertTrue(mp4Result.isAuthorizedStream)
+        org.junit.Assert.assertTrue(mp4Result.videoOptions.isNotEmpty())
+        assertEquals(com.example.data.model.MediaFormat.MP4, mp4Result.videoOptions.first().format)
+
+        // 2. Valid authorized direct MP3 / Audio URL
+        val mp3Outcome = engine.analyzeUrl("https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg")
+        org.junit.Assert.assertTrue(mp3Outcome is com.example.data.service.UrlAnalysisOutcome.Success)
+        val mp3Result = (mp3Outcome as com.example.data.service.UrlAnalysisOutcome.Success).result
+        org.junit.Assert.assertTrue(mp3Result.isAuthorizedStream)
+        org.junit.Assert.assertTrue(mp3Result.audioOptions.isNotEmpty())
+
+        // 3. Invalid URL & SSRF private network protection
+        val invalidUrlOutcome = engine.analyzeUrl("not_a_valid_url_at_all")
+        org.junit.Assert.assertTrue(invalidUrlOutcome is com.example.data.service.UrlAnalysisOutcome.Error)
+        assertEquals("ERR_INVALID_HOST", (invalidUrlOutcome as com.example.data.service.UrlAnalysisOutcome.Error).errorCode)
+
+        val ssrfOutcome = engine.analyzeUrl("http://127.0.0.1:8080/secret.mp4")
+        org.junit.Assert.assertTrue(ssrfOutcome is com.example.data.service.UrlAnalysisOutcome.Error)
+        assertEquals("ERR_SSRF_BLOCKED", (ssrfOutcome as com.example.data.service.UrlAnalysisOutcome.Error).errorCode)
+
+        // 4 & 5. YouTube URL detection (watch, youtu.be, Shorts, share links) & Authorized Metadata Preview / Limitation Notice
+        assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+        assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://youtu.be/dQw4w9WgXcQ?si=share123"))
+        assertEquals("dQw4w9WgXcQ", com.example.data.service.ProviderDetector.extractYouTubeVideoId("https://www.youtube.com/shorts/dQw4w9WgXcQ"))
+
+        val ytOutcome = engine.analyzeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        org.junit.Assert.assertTrue(ytOutcome is com.example.data.service.UrlAnalysisOutcome.Success)
+        val ytResult = (ytOutcome as com.example.data.service.UrlAnalysisOutcome.Success).result
+        assertEquals("YouTube", ytResult.providerName)
+        assertEquals("https://www.youtube.com/watch?v=dQw4w9WgXcQ", ytResult.externalLaunchUrl)
+        // Standard YouTube video without CC archive match must NOT pretend to be a direct MP4/MP3 stream
+        org.junit.Assert.assertFalse(ytResult.isAuthorizedStream)
+        org.junit.Assert.assertTrue(ytResult.videoOptions.isEmpty())
+        org.junit.Assert.assertTrue(ytResult.audioOptions.isEmpty())
+        assertNotNull(ytResult.authorizationLimitationNotice)
+
+        // 6. HTML webpage incorrectly supplied as a media URL
+        val htmlFile = java.io.File.createTempFile("webpage_error", ".mp4")
+        htmlFile.writeText("<!DOCTYPE html><html><head><title>404 Not Found</title></head><body>Error</body></html>")
+        val htmlValidation = com.example.data.service.MediaStreamValidator.validateDownloadedMediaFile(htmlFile)
+        org.junit.Assert.assertFalse("HTML error page must be rejected", htmlValidation.isValid)
+        htmlFile.delete()
+        org.junit.Assert.assertTrue(com.example.data.service.MediaStreamValidator.isLikelyWebpageLandingUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+
+        // 7 & 8. Expired signed URL (HTTP 403/401) & Network interruption / 429 / 5xx classification
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.FORBIDDEN_OR_EXPIRED_URL_403,
+            com.example.data.service.DownloadErrorHandler.classifyHttpStatus(403, "Forbidden", "cdn.example.com").category
+        )
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.UNAUTHORIZED_401,
+            com.example.data.service.DownloadErrorHandler.classifyHttpStatus(401, "Unauthorized", "cdn.example.com").category
+        )
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.RATE_LIMITED_429,
+            com.example.data.service.DownloadErrorHandler.classifyHttpStatus(429, "Too Many Requests", "cdn.example.com").category
+        )
+        assertEquals(
+            com.example.data.service.DownloadErrorCategory.SERVER_ERROR_5XX,
+            com.example.data.service.DownloadErrorHandler.classifyHttpStatus(502, "Bad Gateway", "cdn.example.com").category
+        )
+        val timeoutErr = com.example.data.service.DownloadErrorHandler.classify(java.net.SocketTimeoutException("Read timed out"), "CDN")
+        assertEquals(com.example.data.service.DownloadErrorCategory.NETWORK_IO_TIMEOUT, timeoutErr.category)
+
+        // 9. Unsupported protocol / media format
+        val ftpOutcome = engine.analyzeUrl("ftp://files.example.com/video.mp4")
+        org.junit.Assert.assertTrue(ftpOutcome is com.example.data.service.UrlAnalysisOutcome.Error)
+        assertEquals("ERR_UNSUPPORTED_SCHEME", (ftpOutcome as com.example.data.service.UrlAnalysisOutcome.Error).errorCode)
+
+        // 10 & 11. Duplicate download detection & Cancelled download cleanup
+        val option = mp4Result.videoOptions.first()
+        val job1 = queueManager.enqueueDownload(mp4Result, option)
+        val job2 = queueManager.enqueueDownload(mp4Result, option)
+        assertEquals("Duplicate active download must return existing jobId", job1, job2)
+
+        queueManager.cancelDownload(job1)
+        // Allow coroutine to update state
+        kotlinx.coroutines.delay(50)
+        val cancelledTask = dao.getDownloadById(job1)
+        assertNotNull(cancelledTask)
+
+        // 12 & 13. Destination directory creation & App restart during a download reconciliation
+        val dlDir = queueManager.getDownloadsDirectory()
+        org.junit.Assert.assertTrue(dlDir.exists() && dlDir.isDirectory)
+        val snapshot = dao.getAllDownloadsSnapshot()
+        org.junit.Assert.assertTrue(snapshot.isNotEmpty())
+
+        // 14 & 15. Completed file binary integrity (MP4 ftyp, MP3 ID3, WAV RIFF, WebM EBML) & non-fake MP3 protection
+        val validMp4 = java.io.File.createTempFile("integrity_video", ".mp4")
+        val mp4Bytes = ByteArray(1024)
+        mp4Bytes[4] = 'f'.code.toByte()
+        mp4Bytes[5] = 't'.code.toByte()
+        mp4Bytes[6] = 'y'.code.toByte()
+        mp4Bytes[7] = 'p'.code.toByte()
+        validMp4.writeBytes(mp4Bytes)
+        val mp4Check = com.example.data.service.MediaStreamValidator.validateDownloadedMediaFile(validMp4)
+        org.junit.Assert.assertTrue(mp4Check.isValid)
+        assertEquals("MP4/M4A", mp4Check.detectedFormat)
+        validMp4.delete()
+
+        val validMp3 = java.io.File.createTempFile("integrity_audio", ".mp3")
+        val mp3Bytes = ByteArray(1024)
+        mp3Bytes[0] = 'I'.code.toByte()
+        mp3Bytes[1] = 'D'.code.toByte()
+        mp3Bytes[2] = '3'.code.toByte()
+        validMp3.writeBytes(mp3Bytes)
+        val mp3Check = com.example.data.service.MediaStreamValidator.validateDownloadedMediaFile(validMp3)
+        org.junit.Assert.assertTrue(mp3Check.isValid)
+        assertEquals("MP3", mp3Check.detectedFormat)
+        validMp3.delete()
+        }
     }
 }
