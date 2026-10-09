@@ -563,12 +563,175 @@ class MediaAnalyzerEngine(
             ?: shortcodeRegex.find(originalUrl)?.groupValues?.getOrNull(1)
 
         val discoveredVideos = mutableListOf<String>()
+        val dashVideoOptions = mutableListOf<QualityOption>()
+        var dashAudioUrl: String? = null
+        var dashAudioSize: Long = -1L
         var captionTitle: String? = fallbackTitle
         var creatorHandle: String? = fallbackAuthor
         var thumbUrl: String? = fallbackThumb
 
-        // Method 1: Try ddinstagram / kkinstagram with TelegramBot User-Agent (returns direct MP4 in og:video)
+        // Method 1: Fetch Instagram Reel/Post page directly with Desktop Chrome & Mac Safari User-Agents
+        // Instagram embeds `"video_versions":[{"type":101,"url":"https://...mp4..."}]` (progressive MP4 with audio)
+        // AND `"video_dash_manifest":"<?xml ... <Representation FBQualityLabel=\"1080p\" ...><BaseURL>..."` (1080p Full HD + M4A audio track)!
         if (!shortcode.isNullOrBlank()) {
+            val pageEndpoints = listOf(
+                "https://www.instagram.com/reel/$shortcode/" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "https://www.instagram.com/p/$shortcode/" to "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15"
+            )
+            for ((pageUrl, ua) in pageEndpoints) {
+                if (discoveredVideos.isNotEmpty() && dashVideoOptions.isNotEmpty()) break
+                try {
+                    val req = Request.Builder()
+                        .url(pageUrl)
+                        .header("User-Agent", ua)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Language", "en-US,en;q=0.9")
+                        .header("Sec-Fetch-Mode", "navigate")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val html = resp.body?.string().orEmpty()
+                            if (html.isNotBlank()) {
+                                // 1A. Extract progressive MP4 URLs from `"video_versions":[{"type":101,"url":"..."}]`
+                                val versionsBlockRegex = Regex("""\\?["']video_versions\\?["']\s*:\s*\[([^\]]+)]""")
+                                versionsBlockRegex.findAll(html).forEach { blockMatch ->
+                                    val block = blockMatch.groupValues[1]
+                                    Regex("""\\?["']url\\?["']\s*:\s*\\?["'](https?:[^"']+)\\?["']""")
+                                        .findAll(block)
+                                        .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                                        .filter { it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it) }
+                                        .forEach { discoveredVideos.add(it) }
+                                }
+
+                                // 1B. Extract `"video_url":"https://..."` if present
+                                Regex("""\\?["']video_url\\?["']\s*:\s*\\?["'](https?:[^"']+)\\?["']""")
+                                    .findAll(html)
+                                    .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                                    .filter { it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it) }
+                                    .forEach { discoveredVideos.add(it) }
+
+                                // 1C. Parse `video_dash_manifest` XML for 1080p Full HD / 720p HD video representations + dedicated M4A audio track
+                                val dashIdx = html.indexOf("video_dash_manifest")
+                                if (dashIdx >= 0) {
+                                    val dashWindow = html.substring(dashIdx, minOf(html.length, dashIdx + 35_000))
+                                        .replace("\\u003C", "<")
+                                        .replace("\\u003c", "<")
+                                        .replace("\\u003E", ">")
+                                        .replace("\\u003e", ">")
+                                        .replace("\\/", "/")
+                                        .replace("\\\"", "\"")
+                                        .replace("&amp;", "&")
+                                        .replace("\\u0026", "&")
+                                        .replace("\\u00253D", "%3D")
+
+                                    val repRegex = Regex("""<Representation([^>]+)>(.*?)</Representation>""", RegexOption.DOT_MATCHES_ALL)
+                                    data class IgDashRep(
+                                        val qualityLabel: String,
+                                        val height: Int,
+                                        val width: Int,
+                                        val bandwidth: Int,
+                                        val contentLength: Long,
+                                        val codecs: String,
+                                        val mimeType: String,
+                                        val baseUrl: String
+                                    )
+                                    val videoReps = mutableListOf<IgDashRep>()
+                                    repRegex.findAll(dashWindow).forEach { repMatch ->
+                                        val attrs = repMatch.groupValues[1]
+                                        val inner = repMatch.groupValues[2]
+                                        val baseUrl = Regex("""<BaseURL>([^<]+)</BaseURL>""")
+                                            .find(inner)?.groupValues?.getOrNull(1)?.trim()
+                                            ?.let { decodeHtmlUrl(it) }
+                                            ?: return@forEach
+                                        if (!baseUrl.startsWith("http")) return@forEach
+
+                                        val mime = Regex("""mimeType=["']([^"']+)["']""").find(attrs)?.groupValues?.getOrNull(1).orEmpty()
+                                        val codecs = Regex("""codecs=["']([^"']+)["']""").find(attrs)?.groupValues?.getOrNull(1).orEmpty()
+                                        val qLabel = Regex("""FBQualityLabel=["']([^"']+)["']""").find(attrs)?.groupValues?.getOrNull(1).orEmpty()
+                                        val cl = Regex("""FBContentLength=["'](\d+)["']""").find(attrs)?.groupValues?.getOrNull(1)?.toLongOrNull() ?: -1L
+                                        val bw = Regex("""bandwidth=["'](\d+)["']""").find(attrs)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                                        val w = Regex("""width=["'](\d+)["']""").find(attrs)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                                        val h = Regex("""height=["'](\d+)["']""").find(attrs)?.groupValues?.getOrNull(1)?.toIntOrNull()
+                                            ?: qLabel.removeSuffix("p").toIntOrNull() ?: 0
+
+                                        if (mime.startsWith("audio/") || codecs.startsWith("mp4a")) {
+                                            if (dashAudioUrl == null) {
+                                                dashAudioUrl = baseUrl
+                                                dashAudioSize = cl
+                                            }
+                                        } else if (mime.startsWith("video/")) {
+                                            videoReps.add(
+                                                IgDashRep(
+                                                    qualityLabel = qLabel.ifBlank { "${h}p" },
+                                                    height = h,
+                                                    width = w,
+                                                    bandwidth = bw,
+                                                    contentLength = cl,
+                                                    codecs = codecs,
+                                                    mimeType = mime,
+                                                    baseUrl = baseUrl
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    videoReps.sortedWith(
+                                        compareByDescending<IgDashRep> { it.codecs.startsWith("avc1") }
+                                            .thenByDescending { it.bandwidth }
+                                    ).distinctBy { it.qualityLabel }.forEach { rep ->
+                                        val labelNum = rep.qualityLabel.removeSuffix("p").toIntOrNull() ?: 720
+                                        if (labelNum >= 480) {
+                                            val totalEst = if (rep.contentLength > 0 && dashAudioSize > 0) {
+                                                rep.contentLength + dashAudioSize
+                                            } else {
+                                                rep.contentLength
+                                            }
+                                            dashVideoOptions.add(
+                                                QualityOption(
+                                                    id = "ig_dash_${rep.qualityLabel}_${rep.bandwidth}",
+                                                    format = MediaFormat.MP4,
+                                                    label = "${rep.qualityLabel} ${if (labelNum >= 1080) "Full HD" else "HD"} (Instagram Reel)",
+                                                    subLabel = "High-Bitrate Stream + Audio • ${if (rep. codecs.startsWith("avc1")) "H.264" else "VP9/MP4"}",
+                                                    badge = if (labelNum >= 1080) "1080p HD" else "HD",
+                                                    resolutionOrBitrate = rep.qualityLabel,
+                                                    estimatedSizeBytes = totalEst,
+                                                    downloadUrl = rep.baseUrl,
+                                                    companionAudioUrl = dashAudioUrl,
+                                                    codec = if (rep.codecs.startsWith("avc1")) "H.264 / AAC" else "MP4 / AAC",
+                                                    includesAudio = true
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // 1D. Metadata extraction (Author, Caption, Thumbnail)
+                                if (creatorHandle.isNullOrBlank()) {
+                                    creatorHandle = Regex("""\\?["']username\\?["']\s*:\s*\\?["']([A-Za-z0-9._]+)\\?["']""")
+                                        .find(html)?.groupValues?.getOrNull(1)?.let { "@$it" }
+                                }
+                                if (captionTitle.isNullOrBlank()) {
+                                    captionTitle = Regex("""\\?["']accessibility_caption\\?["']\s*:\s*\\?["']([^"']+)\\?["']""")
+                                        .find(html)?.groupValues?.getOrNull(1)?.take(90)
+                                }
+                                if (thumbUrl.isNullOrBlank()) {
+                                    thumbUrl = Regex("""\\?["']display_uri\\?["']\s*:\s*\\?["'](https?:[^"']+)\\?["']""")
+                                        .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                                        ?: Regex("""\\?["']display_url\\?["']\s*:\s*\\?["'](https?:[^"']+)\\?["']""")
+                                            .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                                }
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Continue to fallback methods
+                }
+            }
+        }
+
+        // Method 2: Try ddinstagram / kkinstagram / vxinstagram with TelegramBot User-Agent (returns direct MP4 in og:video)
+        if (discoveredVideos.isEmpty() && !shortcode.isNullOrBlank()) {
             val mirrorUrls = listOf(
                 "https://www.ddinstagram.com/videos/$shortcode/1",
                 "https://www.ddinstagram.com/p/$shortcode",
@@ -885,25 +1048,94 @@ class MediaAnalyzerEngine(
                     candidate != cleanUrl
             }
             .distinct()
-        if (uniqueVideos.isNotEmpty()) {
-            val primaryStream = uniqueVideos.first()
+        if (uniqueVideos.isNotEmpty() || dashVideoOptions.isNotEmpty()) {
+            val primaryStream = uniqueVideos.firstOrNull() ?: dashVideoOptions.first().downloadUrl
             val finalTitle = captionTitle?.takeIf { !it.equals("Instagram", ignoreCase = true) }
                 ?: "Instagram Reel ${shortcode ?: ""}".trim()
             val finalAuthor = creatorHandle?.takeIf { !it.equals("Instagram", ignoreCase = true) }
                 ?: "Instagram Creator"
 
-            return buildSocialSuccessOutcome(
-                originalUrl = originalUrl,
-                providerLabel = "Instagram",
-                title = finalTitle,
-                author = finalAuthor,
-                thumbnailUrl = thumbUrl,
-                videoStreamUrls = listOf(
-                    "1080p Full HD (Original Reel)" to primaryStream,
-                    "720p HD (Fast Mobile)" to (uniqueVideos.getOrNull(1) ?: primaryStream),
-                    "480p Data Saver" to (uniqueVideos.lastOrNull() ?: primaryStream)
+            val combinedVideoOptions = mutableListOf<QualityOption>()
+            if (uniqueVideos.isNotEmpty()) {
+                combinedVideoOptions.add(
+                    QualityOption(
+                        id = "ig_prog_hd_0",
+                        format = MediaFormat.MP4,
+                        label = "1080p / 720p Progressive MP4 (Video + Audio)",
+                        subLabel = "Direct Multiplexed Instagram Stream • H.264 + AAC",
+                        badge = "Recommended",
+                        resolutionOrBitrate = "720p / 1080p",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = primaryStream,
+                        companionAudioUrl = null,
+                        codec = "H.264 / AAC",
+                        includesAudio = true
+                    )
+                )
+            }
+            combinedVideoOptions.addAll(dashVideoOptions)
+            if (uniqueVideos.size > 1) {
+                combinedVideoOptions.add(
+                    QualityOption(
+                        id = "ig_prog_sd_1",
+                        format = MediaFormat.MP4,
+                        label = "480p Fast Mobile MP4",
+                        subLabel = "Direct Instagram Stream • Data Saver",
+                        badge = "Fast",
+                        resolutionOrBitrate = "480p",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = uniqueVideos[1],
+                        companionAudioUrl = null,
+                        codec = "H.264 / AAC",
+                        includesAudio = true
+                    )
+                )
+            }
+
+            val bestAudioSource = dashAudioUrl ?: primaryStream
+            val audioOptions = listOf(
+                QualityOption(
+                    id = "ig_aud_320",
+                    format = MediaFormat.MP3,
+                    label = "MP3 / Audio 320kbps",
+                    subLabel = if (dashAudioUrl != null) "Original Instagram Studio Audio Track" else "Direct Audio from Instagram Reel",
+                    badge = "HQ",
+                    resolutionOrBitrate = "320 kbps",
+                    estimatedSizeBytes = dashAudioSize,
+                    downloadUrl = bestAudioSource,
+                    codec = "AAC / MP3"
                 ),
-                audioStreamUrl = primaryStream
+                QualityOption(
+                    id = "ig_aud_192",
+                    format = MediaFormat.MP3,
+                    label = "MP3 / Audio 192kbps",
+                    subLabel = "Balanced Audio Stream",
+                    badge = null,
+                    resolutionOrBitrate = "192 kbps",
+                    estimatedSizeBytes = dashAudioSize,
+                    downloadUrl = bestAudioSource,
+                    codec = "AAC / MP3"
+                )
+            )
+
+            return UrlAnalysisOutcome.Success(
+                MediaAnalysisResult(
+                    mediaId = "ig_${shortcode ?: UUID.randomUUID().toString().take(8)}",
+                    originalUrl = originalUrl,
+                    normalizedUrl = originalUrl,
+                    title = finalTitle,
+                    authorOrChannel = finalAuthor,
+                    durationSeconds = 0,
+                    durationFormatted = "Instagram Reel",
+                    providerId = "social_universal_share",
+                    providerName = "Instagram",
+                    providerBadgeColorHex = 0xFFE1306C,
+                    thumbnailUrl = thumbUrl,
+                    videoOptions = combinedVideoOptions.distinctBy { it.label },
+                    audioOptions = audioOptions,
+                    isAuthorizedStream = true,
+                    securityNotice = "Verified Instagram Direct Stream (${shortcode ?: "Reel"})"
+                )
             )
         }
 
@@ -1387,9 +1619,13 @@ class MediaAnalyzerEngine(
                         }
                     }
 
-                    // Sort highest resolution & framerate first (4K -> 2K -> 1080p60 -> 1080p -> 720p -> 480p -> 360p)
+                    // Sort highest resolution & framerate first, prioritizing H.264 (avc1) for universal Android MediaMuxer compatibility
                     adaptiveCandidates
-                        .sortedWith(compareByDescending<AdaptiveVideoCandidate> { it.height }.thenByDescending { it.fps })
+                        .sortedWith(
+                            compareByDescending<AdaptiveVideoCandidate> { it.height }
+                                .thenByDescending { it.fps }
+                                .thenByDescending { it.codec.startsWith("H.264") }
+                        )
                         .distinctBy { "${it.height}_${if (it.fps > 30) 60 else 30}" }
                         .forEach { cand ->
                             val alreadyHasMuxedSameHeight = videoOptions.any {

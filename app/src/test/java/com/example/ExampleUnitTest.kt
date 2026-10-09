@@ -64,7 +64,7 @@ class ExampleUnitTest {
                         <meta property="og:description" content="Exact Reel Caption" />
                     </head>
                     <body>
-                        <script>{"video_url":"$realStreamUrl","username":"creator_handle"}</script>
+                        <script>{"video_versions":[{"type":101,"url":"$realStreamUrl"}],"video_url":"$realStreamUrl","username":"creator_handle"}</script>
                     </body>
                     </html>
                 """.trimIndent()
@@ -87,6 +87,43 @@ class ExampleUnitTest {
         assertEquals(realStreamUrl, result.videoOptions.first().downloadUrl)
         assertTrue(result.audioOptions.isNotEmpty())
         assertEquals(realStreamUrl, result.audioOptions.first().downloadUrl)
+    }
+
+    @Test
+    fun `instagram DASH manifest 1080p video and M4A audio are extracted with companionAudioUrl`() = runBlocking {
+        val progUrl = "https://scontent.cdninstagram.com/o1/v/t2/f2/m86/prog_720p.mp4"
+        val dash1080Url = "https://scontent.cdninstagram.com/o1/v/t2/f2/m367/dash_1080p.mp4"
+        val dashAudioUrl = "https://scontent.cdninstagram.com/o1/v/t2/f2/m78/dash_audio.mp4"
+        val mockClient = okhttp3.OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val req = chain.request()
+                val htmlBody = """
+                    <html><body>
+                    <script>
+                    {"video_dash_manifest":"\u003C?xml version=\"1.0\"?>\u003CMPD>\u003CPeriod>\u003CAdaptationSet>\u003CRepresentation id=\"1v\" bandwidth=\"1109200\" codecs=\"avc1.64001f\" mimeType=\"video/mp4\" FBContentLength=\"6239255\" width=\"1080\" height=\"1920\" FBQualityLabel=\"1080p\">\u003CBaseURL>$dash1080Url\u003C/BaseURL>\u003C/Representation>\u003CRepresentation id=\"2a\" bandwidth=\"61204\" codecs=\"mp4a.40.5\" mimeType=\"audio/mp4\" FBContentLength=\"345213\">\u003CBaseURL>$dashAudioUrl\u003C/BaseURL>\u003C/Representation>\u003C/AdaptationSet>\u003C/Period>\u003C/MPD>","video_versions":[{"type":101,"url":"$progUrl"}],"username":"banksy","accessibility_caption":"Video by Banksy"}
+                    </script>
+                    </body></html>
+                """.trimIndent()
+                okhttp3.Response.Builder()
+                    .request(req)
+                    .protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .header("Content-Type", "text/html")
+                    .body(okhttp3.ResponseBody.create(null, htmlBody))
+                    .build()
+            }
+            .build()
+
+        val testEngine = MediaAnalyzerEngine(mockClient)
+        val outcome = testEngine.analyzeUrl("https://www.instagram.com/reel/DXwf7pis6KT/")
+        assertTrue(outcome is UrlAnalysisOutcome.Success)
+        val result = (outcome as UrlAnalysisOutcome.Success).result
+        assertTrue(result.videoOptions.size >= 2)
+        val dashOpt = result.videoOptions.firstOrNull { it.downloadUrl == dash1080Url }
+        assertNotNull(dashOpt)
+        assertEquals(dashAudioUrl, dashOpt?.companionAudioUrl)
+        assertEquals(dashAudioUrl, result.audioOptions.first().downloadUrl)
     }
 
     @Test
