@@ -750,9 +750,27 @@ class DownloadQueueManager(
                 task.totalBytes
             }
 
+            val isGoogleVideoStream = targetUrl.contains("googlevideo.com", ignoreCase = true)
+            val chunkThresholdBytes = 2L * 1024L * 1024L // 2 MB chunk threshold for fast unthrottled googlevideo transfers
+
+            if (isGoogleVideoStream && totalExpected > chunkThresholdBytes) {
+                // Close initial response and stream in fast 2MB byte ranges to bypass googlevideo single-connection bandwidth throttling
+                resp.close()
+                downloadGoogleVideoInFastChunks(
+                    targetUrl = targetUrl,
+                    referer = refererOrigin,
+                    startingBytes = startingBytes,
+                    totalExpected = totalExpected,
+                    appendMode = appendMode,
+                    task = task,
+                    destinationFile = destinationFile
+                )
+                return
+            }
+
             val input = body.byteStream()
             val output = FileOutputStream(destinationFile, appendMode)
-            val buffer = ByteArray(32 * 1024)
+            val buffer = ByteArray(64 * 1024)
             var transferred = startingBytes
             var lastReportTime = System.currentTimeMillis()
             var bytesAtLastReport = transferred
@@ -799,6 +817,80 @@ class DownloadQueueManager(
                 }
                 out.flush()
             }
+        }
+    }
+
+    /**
+     * Streams YouTube `googlevideo.com` media in 2 MB byte-range chunks so YouTube CDN servers
+     * do not throttle the connection to 40 KB/s or drop long adaptive video transfers.
+     */
+    private suspend fun downloadGoogleVideoInFastChunks(
+        targetUrl: String,
+        referer: String,
+        startingBytes: Long,
+        totalExpected: Long,
+        appendMode: Boolean,
+        task: DownloadTaskEntity,
+        destinationFile: File
+    ) {
+        val chunkSize = 2L * 1024L * 1024L // 2 MB per chunk
+        var transferred = startingBytes
+        var lastReportTime = System.currentTimeMillis()
+        var bytesAtLastReport = transferred
+        val buffer = ByteArray(64 * 1024)
+
+        FileOutputStream(destinationFile, appendMode).use { out ->
+            while (transferred < totalExpected) {
+                if (pausedFlags[task.jobId] == true) return
+                val chunkEnd = minOf(transferred + chunkSize - 1L, totalExpected - 1L)
+                val rangeHeader = "bytes=$transferred-$chunkEnd"
+
+                executeStreamRequest(
+                    targetUrl = targetUrl,
+                    referer = referer,
+                    rangeHeader = rangeHeader
+                ).use { chunkResp ->
+                    if (!chunkResp.isSuccessful && chunkResp.code != 206) {
+                        throw IOException("HTTP ${chunkResp.code} during chunked stream transfer")
+                    }
+                    val chunkIn = chunkResp.body?.byteStream()
+                        ?: throw IOException("Empty chunk body from stream server")
+                    var read: Int
+                    while (chunkIn.read(buffer).also { read = it } != -1) {
+                        if (pausedFlags[task.jobId] == true) return
+                        out.write(buffer, 0, read)
+                        transferred += read
+
+                        val now = System.currentTimeMillis()
+                        val elapsedMs = now - lastReportTime
+                        if (elapsedMs >= 140) {
+                            val deltaBytes = transferred - bytesAtLastReport
+                            val speed = (deltaBytes * 1000L) / max(elapsedMs, 1L)
+                            val pct = ((transferred.toDouble() / totalExpected.toDouble()) * 99.0)
+                                .roundToInt()
+                                .coerceIn(1, 99)
+                            val remainingBytes = max(totalExpected - transferred, 0L)
+                            val eta = if (speed > 0) remainingBytes / speed else -1L
+
+                            dao.upsertDownload(
+                                task.copy(
+                                    state = DownloadJobState.DOWNLOADING.name,
+                                    progressPercent = pct,
+                                    downloadedBytes = transferred,
+                                    totalBytes = totalExpected,
+                                    speedBytesPerSec = speed,
+                                    etaSeconds = eta,
+                                    localFilePath = destinationFile.absolutePath,
+                                    updatedAt = now
+                                )
+                            )
+                            lastReportTime = now
+                            bytesAtLastReport = transferred
+                        }
+                    }
+                }
+            }
+            out.flush()
         }
     }
 
@@ -849,12 +941,36 @@ class DownloadQueueManager(
             "${uri.scheme ?: "https"}://${uri.host ?: ""}/"
         }.getOrDefault("https://www.google.com/")
 
+        val isGoogleVideo = targetUrl.contains("googlevideo.com", ignoreCase = true)
         executeStreamRequest(targetUrl = targetUrl, referer = refererOrigin, rangeHeader = null).use { resp ->
             if (!resp.isSuccessful) return
             val body = resp.body ?: return
+            val totalLen = body.contentLength()
+            val chunkSize = 2L * 1024L * 1024L
+            if (isGoogleVideo && totalLen > chunkSize) {
+                resp.close()
+                var transferred = 0L
+                val buffer = ByteArray(64 * 1024)
+                FileOutputStream(outputFile, false).use { out ->
+                    while (transferred < totalLen) {
+                        val end = minOf(transferred + chunkSize - 1L, totalLen - 1L)
+                        executeStreamRequest(targetUrl, refererOrigin, "bytes=$transferred-$end").use { cResp ->
+                            if (!cResp.isSuccessful && cResp.code != 206) return
+                            val cIn = cResp.body?.byteStream() ?: return
+                            var read: Int
+                            while (cIn.read(buffer).also { read = it } != -1) {
+                                out.write(buffer, 0, read)
+                                transferred += read
+                            }
+                        }
+                    }
+                    out.flush()
+                }
+                return
+            }
             body.byteStream().use { input ->
                 FileOutputStream(outputFile, false).use { out ->
-                    input.copyTo(out, bufferSize = 32 * 1024)
+                    input.copyTo(out, bufferSize = 64 * 1024)
                     out.flush()
                 }
             }
@@ -863,7 +979,7 @@ class DownloadQueueManager(
 
     /**
      * Uses Android's native hardware [MediaExtractor] and [MediaMuxer] to losslessly combine
-     * a high-resolution adaptive MP4 video stream (e.g. 4K / 1080p60) and an M4A/AAC audio stream
+     * a high-resolution adaptive MP4 video stream (1080p / 720p H.264) and an M4A/AAC audio stream
      * into a single standard MP4 file without re-encoding.
      */
     private fun muxVideoAndAudioToMp4(
@@ -913,16 +1029,19 @@ class DownloadQueueManager(
             val muxAudioTrack = muxer.addTrack(audioFormat)
             muxer.start()
 
-            val bufferSize = 1024 * 1024
+            val bufferSize = 2 * 1024 * 1024
             val buffer = ByteBuffer.allocate(bufferSize)
             val bufferInfo = MediaCodec.BufferInfo()
 
             // Copy all video samples
             while (true) {
+                buffer.clear()
                 bufferInfo.offset = 0
                 bufferInfo.size = videoExtractor.readSampleData(buffer, 0)
                 if (bufferInfo.size < 0) break
-                bufferInfo.presentationTimeUs = videoExtractor.sampleTime
+                val sampleTime = videoExtractor.sampleTime
+                if (sampleTime < 0L) break
+                bufferInfo.presentationTimeUs = sampleTime
                 val sampleFlags = videoExtractor.sampleFlags
                 bufferInfo.flags = if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
                     MediaCodec.BUFFER_FLAG_KEY_FRAME
@@ -935,10 +1054,13 @@ class DownloadQueueManager(
 
             // Copy all audio samples
             while (true) {
+                buffer.clear()
                 bufferInfo.offset = 0
                 bufferInfo.size = audioExtractor.readSampleData(buffer, 0)
                 if (bufferInfo.size < 0) break
-                bufferInfo.presentationTimeUs = audioExtractor.sampleTime
+                val sampleTime = audioExtractor.sampleTime
+                if (sampleTime < 0L) break
+                bufferInfo.presentationTimeUs = sampleTime
                 val sampleFlags = audioExtractor.sampleFlags
                 bufferInfo.flags = if ((sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
                     MediaCodec.BUFFER_FLAG_KEY_FRAME

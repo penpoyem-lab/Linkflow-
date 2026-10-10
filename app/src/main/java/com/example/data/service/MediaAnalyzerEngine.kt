@@ -1799,23 +1799,24 @@ class MediaAnalyzerEngine(
                         }
                     }
 
-                    // 3. Inspect adaptive MP4 video streams (1080p, 720p, 480p, 360p H.264/MP4 paired with companion M4A audio for automatic hardware muxing)
+                    // 3. Inspect adaptive MP4 video streams (1080p, 720p, 480p, 360p H.264/AVC1 paired with companion M4A audio for automatic hardware muxing)
+                    // Explicitly require avc1 (H.264) and cap adaptive mux streams at 1080p so Android MediaMuxer and hardware decoders never fail with (-38/0) on AV1/VP9 or unsupported 4K profiles!
                     for (i in 0 until adaptiveArr.length()) {
                         val f = adaptiveArr.optJSONObject(i) ?: continue
                         val url = f.optString("url").takeIf { it.startsWith("http") } ?: continue
                         val mimeType = f.optString("mimeType").lowercase()
-                        // Prefer video/mp4 (avc1) so Android MediaMuxer can losslessly mux video + M4A audio into a single MP4
                         if (!mimeType.startsWith("video/mp4")) continue
+                        if (mimeType.contains("av01") || mimeType.contains("vp9") || mimeType.contains("vp09")) continue
                         val height = f.optInt("height", 0)
-                        if (height < 240) continue
+                        if (height < 240 || height > 1080) continue
                         val qualityLabel = f.optString("qualityLabel").ifBlank { "${height}p" }
                         val vLen = f.optString("contentLength").toLongOrNull() ?: -1L
                         val totalEstimated = if (vLen > 0 && bestCompanionAudioSize > 0) vLen + bestCompanionAudioSize else vLen
                         val itag = f.optInt("itag", i)
 
                         val badgeText = when {
-                            height >= 1080 -> "Recommended"
-                            height >= 720 -> "HD"
+                            height == 1080 -> "Recommended"
+                            height == 720 -> "HD"
                             else -> null
                         }
                         videoOptions.add(
@@ -1823,7 +1824,7 @@ class MediaAnalyzerEngine(
                                 id = "yt_adap_${itag}_$qualityLabel",
                                 format = MediaFormat.MP4,
                                 label = "$qualityLabel MP4${if (height >= 1080) " Full HD" else if (height >= 720) " HD" else ""}",
-                                subLabel = if (bestCompanionAudioUrl != null) "MP4 Video + AAC Audio Mux" else "Direct MP4 Video Stream",
+                                subLabel = if (bestCompanionAudioUrl != null) "MP4 Video (H.264) + AAC Audio Mux" else "Direct MP4 Video Stream",
                                 badge = badgeText,
                                 resolutionOrBitrate = qualityLabel,
                                 estimatedSizeBytes = totalEstimated,
@@ -1902,8 +1903,12 @@ class MediaAnalyzerEngine(
                             val v = vStreams.optJSONObject(i) ?: continue
                             val vUrl = v.optString("url").takeIf { it.startsWith("http") } ?: continue
                             val mime = v.optString("mimeType").lowercase()
+                            val codecStr = v.optString("codec").lowercase()
                             if (!mime.contains("mp4")) continue
+                            if (codecStr.contains("av01") || codecStr.contains("vp9")) continue
                             val quality = v.optString("quality").ifBlank { "720p" }
+                            val resHeight = Regex("""(\d+)p""").find(quality)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 720
+                            if (resHeight > 1080) continue
                             val videoOnly = v.optBoolean("videoOnly", false)
                             val contentLen = v.optLong("contentLength", -1L)
                             videoOptions.add(
@@ -1985,6 +1990,7 @@ class MediaAnalyzerEngine(
                             val aUrl = a.optString("url").takeIf { it.startsWith("http") } ?: continue
                             val type = a.optString("type").lowercase()
                             if (!type.startsWith("audio/mp4") && !type.startsWith("video/mp4")) continue
+                            if (type.contains("av01") || type.contains("vp9")) continue
                             if (!checkedFirstInvidiousStream) {
                                 checkedFirstInvidiousStream = true
                                 verifiedInvidiousHost = verifyStreamIsBinaryMedia(aUrl, base)
@@ -2028,7 +2034,7 @@ class MediaAnalyzerEngine(
                             } else if (type.startsWith("video/mp4")) {
                                 val qLabel = a.optString("qualityLabel").ifBlank { "720p" }
                                 val resNum = Regex("""(\d+)p""").find(qLabel)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 360
-                                if (resNum >= 240) {
+                                if (resNum in 240..1080) {
                                     val totalEst = if (clen > 0 && bestCompanionAudioSize > 0) clen + bestCompanionAudioSize else clen
                                     videoOptions.add(
                                         QualityOption(
@@ -2108,13 +2114,14 @@ class MediaAnalyzerEngine(
             return null
         }
 
-        // Sort video options so progressive MP4 with audio or highest resolution (1080p, 720p, 480p, 360p) appear cleanly
+        // Sort video options so progressive MP4 with built-in audio and 1080p/720p H.264 streams appear cleanly
         val deduplicatedVideos = videoOptions
             .distinctBy { it.resolutionOrBitrate + "_" + (it.companionAudioUrl != null) }
             .sortedByDescending { opt ->
                 val resNum = Regex("""(\d+)p""").find(opt.resolutionOrBitrate)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 360
-                // Prefer progressive streams (no mux needed) slightly at equal resolution, and sort 1080p -> 720p -> 480p -> 360p
-                resNum * 10 + if (opt.companionAudioUrl == null) 5 else 0
+                // Prefer progressive MP4 (no mux required) or 1080p H.264+AAC
+                val progressiveBonus = if (opt.companionAudioUrl == null && opt.includesAudio) 4000 else 0
+                progressiveBonus + resNum * 10
             }
 
         val deduplicatedAudios = audioOptions

@@ -38,6 +38,17 @@ object FormatUtils {
         return sdf.format(Date(epochMs))
     }
 
+    private fun resolveMimeType(task: DownloadTaskEntity): String {
+        val ext = task.fileName.substringAfterLast('.', "").lowercase()
+        return when {
+            ext == "m4a" || task.format.equals("M4A", ignoreCase = true) -> "audio/mp4"
+            ext == "mp3" || task.format.equals("MP3", ignoreCase = true) -> "audio/mpeg"
+            ext == "wav" || task.format.equals("WAV", ignoreCase = true) -> "audio/wav"
+            ext == "webm" || task.format.equals("WEBM", ignoreCase = true) -> "video/webm"
+            else -> "video/mp4"
+        }
+    }
+
     fun shareDownloadedFile(
         context: Context,
         task: DownloadTaskEntity,
@@ -52,7 +63,7 @@ object FormatUtils {
                     "${context.packageName}.fileprovider",
                     file
                 )
-                val mimeType = if (task.format == "MP3") "audio/mpeg" else "video/mp4"
+                val mimeType = resolveMimeType(task)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = mimeType
                     putExtra(Intent.EXTRA_STREAM, uri)
@@ -101,7 +112,7 @@ object FormatUtils {
                     "${context.packageName}.fileprovider",
                     file
                 )
-                val mimeType = if (task.format == "MP3") "audio/mpeg" else "video/mp4"
+                val mimeType = resolveMimeType(task)
                 val viewIntent = Intent(Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, mimeType)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)

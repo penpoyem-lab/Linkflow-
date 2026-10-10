@@ -72,6 +72,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -739,23 +740,29 @@ fun MediaPlaybackModal(
     var progress by remember { mutableFloatStateOf(0f) }
     var playbackError by remember { mutableStateOf<String?>(null) }
 
+    val isAudioFormat = remember(task.format, task.fileName) {
+        val ext = task.fileName.substringAfterLast('.', "").lowercase()
+        task.format.equals("MP3", ignoreCase = true) ||
+            task.format.equals("M4A", ignoreCase = true) ||
+            task.format.equals("WAV", ignoreCase = true) ||
+            ext == "mp3" || ext == "m4a" || ext == "wav" || ext == "ogg"
+    }
+
     val localFile = remember(task.localFilePath) {
         task.localFilePath?.let { java.io.File(it) }?.takeIf { it.exists() && it.length() > 0L }
     }
 
-    val mediaPlayer = remember(localFile, task.format) {
-        if (task.format == "MP3" && localFile != null) {
+    val exoPlayer = remember(localFile) {
+        if (localFile != null) {
             try {
-                android.media.MediaPlayer().apply {
-                    setDataSource(localFile.absolutePath)
+                androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+                    val mediaItem = androidx.media3.common.MediaItem.fromUri(android.net.Uri.fromFile(localFile))
+                    setMediaItem(mediaItem)
                     prepare()
-                    setOnCompletionListener {
-                        isPlaying = false
-                        progress = 1f
-                    }
+                    playWhenReady = true
                 }
             } catch (e: Exception) {
-                playbackError = "Audio decoder notice: ${e.localizedMessage ?: "Unsupported stream format"}"
+                playbackError = "Media player notice: ${e.localizedMessage ?: "Unable to initialize player"}"
                 null
             }
         } else {
@@ -763,34 +770,41 @@ fun MediaPlaybackModal(
         }
     }
 
-    var activeVideoView by remember { mutableStateOf<android.widget.VideoView?>(null) }
+    androidx.compose.runtime.DisposableEffect(exoPlayer) {
+        if (exoPlayer == null) return@DisposableEffect onDispose {}
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
 
-    androidx.compose.runtime.DisposableEffect(mediaPlayer) {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                    isPlaying = false
+                    progress = 1f
+                }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                playbackError = "Hardware codec notice (${error.errorCodeName}) • Tap 'Open in System Player' below"
+                isPlaying = false
+            }
+        }
+        exoPlayer.addListener(listener)
         onDispose {
             runCatching {
-                mediaPlayer?.stop()
-                mediaPlayer?.release()
-            }
-            runCatching {
-                activeVideoView?.stopPlayback()
+                exoPlayer.removeListener(listener)
+                exoPlayer.stop()
+                exoPlayer.release()
             }
         }
     }
 
-    LaunchedEffect(isPlaying, mediaPlayer, activeVideoView) {
-        while (isPlaying) {
-            if (mediaPlayer != null) {
-                val dur = runCatching { mediaPlayer.duration }.getOrDefault(0)
-                val pos = runCatching { mediaPlayer.currentPosition }.getOrDefault(0)
-                if (dur > 0) {
-                    progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
-                }
-            } else if (activeVideoView != null) {
-                val dur = runCatching { activeVideoView?.duration ?: 0 }.getOrDefault(0)
-                val pos = runCatching { activeVideoView?.currentPosition ?: 0 }.getOrDefault(0)
-                if (dur > 0) {
-                    progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
-                }
+    LaunchedEffect(isPlaying, exoPlayer) {
+        while (isPlaying && exoPlayer != null) {
+            val dur = runCatching { exoPlayer.duration }.getOrDefault(0L)
+            val pos = runCatching { exoPlayer.currentPosition }.getOrDefault(0L)
+            if (dur > 0L) {
+                progress = (pos.toFloat() / dur.toFloat()).coerceIn(0f, 1f)
             }
             delay(200)
         }
@@ -826,12 +840,12 @@ fun MediaPlaybackModal(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoLibrary,
+                            imageVector = if (isAudioFormat) Icons.Default.AudioFile else Icons.Default.VideoLibrary,
                             contentDescription = null,
                             tint = tokens.accentCyan
                         )
                         Text(
-                            text = if (task.format == "MP3") "LinkFlow Audio Player" else "LinkFlow Media Player",
+                            text = if (isAudioFormat) "LinkFlow Audio Player" else "LinkFlow Media Player",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
@@ -853,47 +867,42 @@ fun MediaPlaybackModal(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (task.format != "MP3" && localFile != null) {
+                    if (!isAudioFormat && exoPlayer != null && playbackError == null) {
                         androidx.compose.ui.viewinterop.AndroidView(
                             factory = { ctx ->
-                                android.widget.VideoView(ctx).apply {
-                                    activeVideoView = this
-                                    setVideoPath(localFile.absolutePath)
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = false
-                                        start()
-                                        isPlaying = true
-                                    }
-                                    setOnCompletionListener {
-                                        isPlaying = false
-                                        progress = 1f
-                                    }
-                                    setOnErrorListener { _, what, extra ->
-                                        playbackError = "Video decoder error ($what/$extra)"
-                                        isPlaying = false
-                                        true
-                                    }
+                                androidx.media3.ui.PlayerView(ctx).apply {
+                                    useController = true
+                                    player = exoPlayer
                                 }
                             },
-                            update = { videoView ->
-                                if (isPlaying && !videoView.isPlaying) {
-                                    runCatching { videoView.start() }
-                                } else if (!isPlaying && videoView.isPlaying) {
-                                    runCatching { videoView.pause() }
+                            update = { playerView ->
+                                if (playerView.player !== exoPlayer) {
+                                    playerView.player = exoPlayer
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
+                        if (!task.thumbnailUrl.isNullOrBlank()) {
+                            coil.compose.AsyncImage(
+                                model = task.thumbnailUrl,
+                                contentDescription = task.title,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { alpha = 0.45f }
+                            )
+                        }
                         IconButton(
                             onClick = {
-                                if (mediaPlayer != null) {
-                                    if (isPlaying) {
-                                        runCatching { mediaPlayer.pause() }
-                                        isPlaying = false
+                                if (exoPlayer != null && playbackError == null) {
+                                    if (exoPlayer.isPlaying) {
+                                        exoPlayer.pause()
                                     } else {
-                                        runCatching { mediaPlayer.start() }
-                                        isPlaying = true
+                                        if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                                            exoPlayer.seekTo(0L)
+                                        }
+                                        exoPlayer.play()
                                     }
                                 } else {
                                     FormatUtils.openDownloadedFileExternally(context, task) { err ->
@@ -956,19 +965,18 @@ fun MediaPlaybackModal(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     LiquidGlassPrimaryButton(
-                        text = if (isPlaying) "Pause" else "Play",
+                        text = if (playbackError != null) "Open in System Player" else if (isPlaying) "Pause" else "Play",
                         icon = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         onClick = {
-                            if (mediaPlayer != null) {
-                                if (isPlaying) {
-                                    runCatching { mediaPlayer.pause() }
-                                    isPlaying = false
+                            if (exoPlayer != null && playbackError == null) {
+                                if (exoPlayer.isPlaying) {
+                                    exoPlayer.pause()
                                 } else {
-                                    runCatching { mediaPlayer.start() }
-                                    isPlaying = true
+                                    if (exoPlayer.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                                        exoPlayer.seekTo(0L)
+                                    }
+                                    exoPlayer.play()
                                 }
-                            } else if (task.format != "MP3" && localFile != null) {
-                                isPlaying = !isPlaying
                             } else {
                                 FormatUtils.openDownloadedFileExternally(context, task) { err ->
                                     playbackError = err
