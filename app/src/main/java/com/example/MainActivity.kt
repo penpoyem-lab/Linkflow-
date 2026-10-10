@@ -53,6 +53,7 @@ import com.example.ui.LinkFlowViewModel
 import com.example.ui.PrimaryTab
 import com.example.ui.components.AmbientMidnightBackground
 import com.example.ui.components.LiquidGlassBottomNavigation
+import com.example.ui.components.TopDropTransparentLoadingOverlay
 import com.example.ui.screens.AboutLinkFlowDialog
 import com.example.ui.screens.ActiveDownloadProgressModal
 import com.example.ui.screens.AnimatedSplashScreen
@@ -359,7 +360,7 @@ fun LinkFlowApp(
                         }
                     }
 
-                    // Overlay 1: Quality Selector Sheet
+                    // Overlay 1: Quality Selector Sheet (Drops in from top of screen to center)
                     AnimatedVisibility(
                         visible = uiState.showQualitySheet && uiState.currentAnalysis != null,
                         enter = slideInVertically(
@@ -367,9 +368,9 @@ fun LinkFlowApp(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { it / 2 }
+                            initialOffsetY = { -it / 2 }
                         ) + fadeIn() + scaleIn(initialScale = 0.94f),
-                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut() + scaleOut(targetScale = 0.94f)
+                        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut() + scaleOut(targetScale = 0.94f)
                     ) {
                         uiState.currentAnalysis?.let { analysis ->
                             QualitySelectorSheet(
@@ -385,7 +386,7 @@ fun LinkFlowApp(
                         }
                     }
 
-                    // Overlay 2: Full-Screen Active Download Progress Modal
+                    // Overlay 2: Full-Screen Active Download Progress Modal (Drops in from top of screen)
                     val activeModalTask = uiState.activeModalJobId?.let { id ->
                         allDownloads.find { it.jobId == id }
                     }
@@ -396,9 +397,9 @@ fun LinkFlowApp(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { it }
+                            initialOffsetY = { -it }
                         ) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
                     ) {
                         activeModalTask?.let { task ->
                             ActiveDownloadProgressModal(
@@ -428,20 +429,26 @@ fun LinkFlowApp(
                         }
                     }
 
-                    // Overlay 3: Download Job Details Sheet (Spring Animated)
+                    // Overlay 3: Download Job Details Sheet (Drops in from top to center)
                     val detailsTask = uiState.inspectJobDetailsId?.let { id ->
                         allDownloads.find { it.jobId == id }
                     }
                     AnimatedVisibility(
                         visible = detailsTask != null,
-                        enter = fadeIn() + scaleIn(
+                        enter = slideInVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            initialOffsetY = { -it / 2 }
+                        ) + fadeIn() + scaleIn(
                             initialScale = 0.90f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioMediumBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         ),
-                        exit = fadeOut() + scaleOut(targetScale = 0.90f)
+                        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut() + scaleOut(targetScale = 0.90f)
                     ) {
                         detailsTask?.let { task ->
                             DownloadJobDetailsSheet(
@@ -468,17 +475,23 @@ fun LinkFlowApp(
                         }
                     }
 
-                    // Overlay 4: Media Playback Modal (Spring Animated)
+                    // Overlay 4: Media Playback Modal (Drops in from top to center)
                     AnimatedVisibility(
                         visible = uiState.playbackPreviewTask != null,
-                        enter = fadeIn() + scaleIn(
+                        enter = slideInVertically(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            initialOffsetY = { -it / 2 }
+                        ) + fadeIn() + scaleIn(
                             initialScale = 0.90f,
                             animationSpec = spring(
                                 dampingRatio = Spring.DampingRatioMediumBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         ),
-                        exit = fadeOut() + scaleOut(targetScale = 0.90f)
+                        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut() + scaleOut(targetScale = 0.90f)
                     ) {
                         uiState.playbackPreviewTask?.let { playTask ->
                             MediaPlaybackModal(
@@ -496,7 +509,7 @@ fun LinkFlowApp(
                         }
                     }
 
-                    // Overlay 5: Supported Sources Sheet (Spring Animated)
+                    // Overlay 5: Supported Sources Sheet (Drops in from top to center)
                     AnimatedVisibility(
                         visible = uiState.showSupportedSourcesSheet,
                         enter = slideInVertically(
@@ -504,9 +517,9 @@ fun LinkFlowApp(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { it / 2 }
+                            initialOffsetY = { -it / 2 }
                         ) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
+                        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut()
                     ) {
                         SupportedSourcesSheet(
                             adapters = viewModel.providerAdapters,
@@ -514,7 +527,7 @@ fun LinkFlowApp(
                         )
                     }
 
-                    // Overlay 6: Privacy & Terms Sheet (Spring Animated)
+                    // Overlay 6: Privacy & Terms Sheet (Drops in from top to center)
                     AnimatedVisibility(
                         visible = uiState.showPrivacyTermsSheet,
                         enter = slideInVertically(
@@ -522,9 +535,9 @@ fun LinkFlowApp(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { it / 2 }
+                            initialOffsetY = { -it / 2 }
                         ) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
+                        exit = slideOutVertically(targetOffsetY = { -it / 2 }) + fadeOut()
                     ) {
                         PrivacyAndTermsSheet(
                             onClose = { viewModel.setShowPrivacyTermsSheet(false) }
@@ -553,9 +566,9 @@ fun LinkFlowApp(
                                 dampingRatio = Spring.DampingRatioLowBouncy,
                                 stiffness = Spring.StiffnessMediumLow
                             ),
-                            initialOffsetY = { it / 3 }
+                            initialOffsetY = { -it / 2 }
                         ),
-                        exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.92f) + slideOutVertically(targetOffsetY = { it / 3 })
+                        exit = fadeOut(tween(220)) + scaleOut(targetScale = 0.92f) + slideOutVertically(targetOffsetY = { -it / 2 })
                     ) {
                         SoftwareUpdateModal(
                             otaState = otaUpdateState,
@@ -567,6 +580,13 @@ fun LinkFlowApp(
                             onDismissLater = viewModel::dismissOtaUpdateLater
                         )
                     }
+
+                    // Overlay 9: Centered Transparent Wavy Circular Loading Overlay (Drops from Top to Middle of Screen)
+                    TopDropTransparentLoadingOverlay(
+                        visible = otaUpdateState.phase == com.example.data.service.OtaInstallPhase.CHECKING,
+                        reducedMotion = preferences.reducedMotion,
+                        loaderSize = 56.dp
+                    )
 
                     // Top Floating Liquid-Glass Toast Notification
                     AnimatedVisibility(

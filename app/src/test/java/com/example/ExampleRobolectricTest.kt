@@ -211,10 +211,39 @@ class ExampleRobolectricTest {
                                 .build()
                         }
                     }
+                    urlStr.contains("open.spotify.com/embed/track/") -> {
+                        val spotifyHtml = """
+                            <html><head><script id="__NEXT_DATA__" type="application/json">
+                            {"props":{"pageProps":{"state":{"data":{"entity":{"name":"Blinding Lights","artists":[{"name":"The Weeknd"}],"duration":200040,"audioPreview":{"url":"https://p.scdn.co/mp3-preview/sample29s"},"visualIdentity":{"image":[{"url":"https://image-cdn-ak.spotifycdn.com/image/cover.jpg"}]}}}}}}}
+                            </script></head><body></body></html>
+                        """.trimIndent()
+                        okhttp3.Response.Builder()
+                            .request(req)
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .header("Content-Type", "text/html")
+                            .body(okhttp3.ResponseBody.create(null, spotifyHtml))
+                            .build()
+                    }
+                    urlStr.contains("youtube.com/results?search_query=") -> {
+                        val searchHtml = """{"videoRenderer":{"videoId":"fHI8X4OXluQ"}}"""
+                        okhttp3.Response.Builder()
+                            .request(req)
+                            .protocol(okhttp3.Protocol.HTTP_1_1)
+                            .code(200)
+                            .message("OK")
+                            .header("Content-Type", "text/html")
+                            .body(okhttp3.ResponseBody.create(null, searchHtml))
+                            .build()
+                    }
                     urlStr.contains("archive.org/metadata/") ||
+                        urlStr.contains("archive.org/advancedsearch.php") ||
                         urlStr.contains("pipedapi") ||
                         urlStr.contains("inv.tux.pizza") ||
+                        urlStr.contains("inv.nadeko.net") ||
                         urlStr.contains("invidious") ||
+                        urlStr.contains("loader.to") ||
                         urlStr.contains("cobalt") -> {
                         okhttp3.Response.Builder()
                             .request(req)
@@ -278,6 +307,17 @@ class ExampleRobolectricTest {
         org.junit.Assert.assertTrue(ytResult.isAuthorizedStream)
         org.junit.Assert.assertTrue(ytResult.videoOptions.isNotEmpty())
         org.junit.Assert.assertTrue(ytResult.audioOptions.isNotEmpty())
+
+        // 5b. Spotify Track Full-Length Audio Resolution (resolves full 3:20 song instead of 29-second preview)
+        val spotifyOutcome = engine.analyzeUrl("https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b")
+        org.junit.Assert.assertTrue(spotifyOutcome is com.example.data.service.UrlAnalysisOutcome.Success)
+        val spotifyResult = (spotifyOutcome as com.example.data.service.UrlAnalysisOutcome.Success).result
+        assertEquals("Spotify", spotifyResult.providerName)
+        assertEquals(200, spotifyResult.durationSeconds)
+        assertEquals("3:20", spotifyResult.durationFormatted)
+        org.junit.Assert.assertTrue(spotifyResult.isAuthorizedStream)
+        org.junit.Assert.assertTrue(spotifyResult.audioOptions.isNotEmpty())
+        org.junit.Assert.assertFalse(spotifyResult.audioOptions.first().downloadUrl.contains("mp3-preview"))
 
         // Restricted YouTube video that cannot be downloaded falls back cleanly to Metadata Preview
         val restrictedYtOutcome = engine.analyzeUrl("https://www.youtube.com/watch?v=RESTRICTED_VID")

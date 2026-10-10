@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import com.example.data.local.DownloadTaskEntity
 import com.example.data.model.DownloadJobState
 import com.example.ui.components.LiquidGlassCard
+import com.example.ui.components.PlayStoreScallopedLoader
 import com.example.ui.components.springBounceClickable
 import com.example.ui.theme.LocalLinkFlowTokens
 import com.example.util.FormatUtils
@@ -316,12 +317,21 @@ fun ActiveDownloadProgressModal(
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(6.dp))
+                    } else if (!isPaused) {
+                        PlayStoreScallopedLoader(
+                            size = 42.dp,
+                            color = Color(0xFFEBD0C7),
+                            trackColor = Color(0xFF5D423B),
+                            isSpinning = true,
+                            reducedMotion = reducedMotion
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
 
                     Text(
                         text = "${task.progressPercent}%",
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = 62.sp,
+                            fontSize = 56.sp,
                             fontWeight = FontWeight.Bold
                         ),
                         color = Color.White,
@@ -334,6 +344,7 @@ fun ActiveDownloadProgressModal(
                         DownloadJobState.FAILED -> task.errorMessage ?: "Failed"
                         DownloadJobState.CANCELLED -> "Cancelled"
                         DownloadJobState.PROCESSING -> "Finalizing container…"
+                        DownloadJobState.PREPARING, DownloadJobState.ANALYZING -> "Preparing stream…"
                         else -> "Downloading..."
                     }
 

@@ -81,6 +81,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
@@ -109,9 +110,11 @@ import com.example.ui.components.LiquidGlassSecondaryButton
 import com.example.ui.components.PlayStorePullToRefreshBox
 import com.example.ui.components.PlayStoreScallopedLoader
 import com.example.ui.components.StaggeredAnimatedEntrance
+import com.example.ui.components.TopDropTransparentLoadingOverlay
 import com.example.ui.components.springBounceClickable
 import com.example.ui.theme.LocalLinkFlowTokens
 import com.example.util.FormatUtils
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -552,7 +555,7 @@ fun HomeScreen(
                 }
             }
 
-            // 4. Transparent-Background Scalloped Star Loading OR Error Banner OR Analyzed Preview Card
+            // 4. Transparent-Background Wavy Circular Loading OR Error Banner OR Analyzed Preview Card
             if (uiState.isAnalyzingUrl) {
                 item {
                     TransparentScallopedLoadingView(reducedMotion = reducedMotion)
@@ -702,26 +705,63 @@ fun HomeScreen(
                 }
             }
         }
+
+        // Centered Transparent Loading Overlay that drops down from the top of the screen
+        TopDropTransparentLoadingOverlay(
+            visible = uiState.isAnalyzingUrl,
+            reducedMotion = reducedMotion,
+            loaderSize = 56.dp
+        )
     }
 }
 
 /**
- * Pure transparent-background Google Play Store scalloped cookie-star loading view
- * matching the user's reference image.
+ * Pure transparent-background Material 3 Expressive Wavy Circular loading view
+ * that animates down from the top of the screen into the middle.
  */
 @Composable
 private fun TransparentScallopedLoadingView(
     reducedMotion: Boolean
 ) {
+    val dropOffsetY = remember { androidx.compose.animation.core.Animatable(if (reducedMotion) 0f else -220f) }
+    val alphaAnim = remember { androidx.compose.animation.core.Animatable(if (reducedMotion) 1f else 0f) }
+
+    androidx.compose.runtime.LaunchedEffect(reducedMotion) {
+        if (reducedMotion) {
+            dropOffsetY.snapTo(0f)
+            alphaAnim.snapTo(1f)
+        } else {
+            kotlinx.coroutines.coroutineScope {
+                launch {
+                    alphaAnim.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
+                }
+                launch {
+                    dropOffsetY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 36.dp)
+            .background(Color.Transparent)
+            .graphicsLayer {
+                translationY = dropOffsetY.value
+                alpha = alphaAnim.value
+            }
             .testTag("transparent_scalloped_loader"),
         contentAlignment = Alignment.Center
     ) {
         PlayStoreScallopedLoader(
-            size = 46.dp,
+            size = 48.dp,
             color = Color(0xFFEBD0C7),
             trackColor = Color(0xFF5D423B),
             isSpinning = true,

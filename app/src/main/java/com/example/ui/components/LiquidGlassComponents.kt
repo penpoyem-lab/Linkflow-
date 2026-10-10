@@ -195,27 +195,27 @@ fun Modifier.springBounceClickable(
  * Material 3 Expressive Wavy-Squiggle Arc & Smooth Circular Track Loader
  * on a completely transparent background (matching the user's uploaded reference video).
  *
- * Features from the reference video:
+ * Visual & Motion Fidelity from the reference video:
  * - Indeterminate sweep expansion & contraction: the wavy squiggle arc smoothly expands from a
- *   short 1-wave segment (~26° sweep) to a full 8-wave segment (~272° sweep) and contracts back,
+ *   short 1-wave segment (~24° sweep) to a full 8-wave segment (~276° sweep) and contracts back,
  *   while the opposite smooth circular track arc shrinks and grows inversely so both segments
- *   stay separated by clean ~19° gaps on both ends!
- * - Constant angular wave frequency (~33.5° per wave crest) so as the arc grows longer, additional
- *   smooth sinusoidal crests appear naturally instead of stretching existing waves.
- * - Active wavy squiggle uses rounded stroke caps (`StrokeCap.Round`), while the opposite smooth
- *   circular track uses flat/butt stroke caps (`StrokeCap.Butt`).
- * - Pure transparent background (no circle plate, card, or shadow behind it).
+ *   stay separated by clean ~16° gaps on both ends.
+ * - Constant angular wave frequency (~32° per wave cycle) so as the arc grows longer, additional
+ *   smooth sinusoidal wave crests appear naturally without stretching existing waves.
+ * - Active wavy squiggle uses rounded stroke caps (`StrokeCap.Round`, `#EBD0C7`), while the
+ *   opposite smooth circular track uses flat/butt stroke caps (`StrokeCap.Butt`, `#5D423B`).
+ * - Pure transparent background (`Color.Transparent` — no circle plate, card, or shadow behind it).
  */
 @Composable
 fun PlayStoreScallopedLoader(
-    size: Dp = 44.dp,
+    size: Dp = 48.dp,
     color: Color = Color(0xFFEBD0C7),
     trackColor: Color = Color(0xFF5D423B),
     pullFraction: Float = 1f,
     isSpinning: Boolean = true,
     reducedMotion: Boolean = false,
     strokeRatio: Float = 0.056f,
-    waveAmplitudeRatio: Float = 0.036f,
+    waveAmplitudeRatio: Float = 0.038f,
     modifier: Modifier = Modifier
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "expressive_wavy_arc_loader")
@@ -225,38 +225,38 @@ fun PlayStoreScallopedLoader(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) 360f else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            animation = tween(durationMillis = 1950, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "wavy_arc_base_rotation"
     )
 
-    // Cycle progress 0f -> 1f over 2600ms:
-    // 0.0 -> 0.5: Wavy arc expands from ~26° (1 wave crest) to ~272° (8 wave crests)
-    // 0.5 -> 1.0: Wavy arc contracts from ~272° back to ~26° while advancing its tail angle by 246°
+    // Cycle progress 0f -> 1f over 2500ms:
+    // 0.0 -> 0.5: Wavy arc expands from ~24° (1 wave crest) to ~276° (8.5 wave crests)
+    // 0.5 -> 1.0: Wavy arc contracts from ~276° back to ~24° while advancing its tail angle by 252°
     val morphCycle by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = if (isSpinning && !reducedMotion) 1f else 0.25f,
+        targetValue = if (isSpinning && !reducedMotion) 1f else 0.28f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = LinearEasing),
+            animation = tween(durationMillis = 2500, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "wavy_arc_morph_cycle"
     )
 
-    // Subtle organic wave ripple phase along the squiggle
+    // Organic sinusoidal ripple phase traveling along the squiggle
     val wavePhase by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) (2f * PI.toFloat()) else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 950, easing = LinearEasing),
+            animation = tween(durationMillis = 900, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "wavy_arc_travel_phase"
     )
 
-    val minSweepDeg = 26f
-    val maxSweepDeg = 272f
+    val minSweepDeg = 24f
+    val maxSweepDeg = 276f
     val sweepDelta = maxSweepDeg - minSweepDeg
 
     val (dynamicStartOffsetDeg, wavySweepDeg) = if (isSpinning && !reducedMotion) {
@@ -271,29 +271,29 @@ fun PlayStoreScallopedLoader(
             tailAdvance to sweep
         }
     } else if (isSpinning) {
-        0f to 160f
+        0f to 165f
     } else {
-        // Pull-to-refresh drag mode: sweep grows from 26° to 240° as the user pulls down
-        val pullClamped = pullFraction.coerceIn(0.08f, 1.15f)
-        0f to (minSweepDeg + (pullClamped / 1.15f) * 220f)
+        // Pull-to-refresh drag mode: sweep grows from 24° to 248° as the user pulls down from the top
+        val pullClamped = pullFraction.coerceIn(0.06f, 1.15f)
+        0f to (minSweepDeg + (pullClamped / 1.15f) * 224f)
     }
 
     val effectiveRotation = if (isSpinning) {
         (baseRotationDeg + dynamicStartOffsetDeg) % 360f
     } else {
-        (pullFraction * 240f) - 90f
+        (pullFraction * 260f) - 90f
     }
 
     val effectiveScale = if (isSpinning) {
         1f
     } else {
-        pullFraction.coerceIn(0.35f, 1.04f)
+        pullFraction.coerceIn(0.32f, 1.05f)
     }
 
     // Two clean gaps separating the wavy arc and the smooth circular track arc
     val gapDeg = 16f
     val trackStartDeg = wavySweepDeg + gapDeg
-    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(18f)
+    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(16f)
 
     val wavyPath = remember { Path() }
 
@@ -309,8 +309,8 @@ fun PlayStoreScallopedLoader(
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
         val minDim = this.size.minDimension
-        // Ultra-slim, crisp stroke width (~2.4dp on a 44dp loader)
-        val strokePx = (minDim * strokeRatio).coerceAtLeast(1.75.dp.toPx())
+        // Crisp, slender stroke width matching the video
+        val strokePx = (minDim * strokeRatio).coerceAtLeast(1.8.dp.toPx())
         val waveAmplitudePx = minDim * waveAmplitudeRatio
         val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx - 1.dp.toPx()
 
@@ -333,9 +333,9 @@ fun PlayStoreScallopedLoader(
 
             // 2. Draw the sinusoidal wavy squiggle active arc segment (0..wavySweepDeg)
             // Keep angular wavelength constant (~32° per full wave cycle) so expanding from
-            // 26° to 272° smoothly reveals 1 -> 8.5 slender rounded wave crests
+            // 24° to 276° smoothly reveals 1 -> 8.5 slender rounded wave crests
             val degreesPerWave = 32f
-            val steps = (wavySweepDeg * 0.95f).roundToInt().coerceIn(40, 200)
+            val steps = (wavySweepDeg * 1.1f).roundToInt().coerceIn(48, 220)
             wavyPath.reset()
 
             for (i in 0..steps) {
@@ -374,6 +374,65 @@ fun PlayStoreScallopedLoader(
         }
     }
 }
+
+/**
+ * Full-screen transparent loading overlay where the Material 3 Expressive Wavy Circular Loader
+ * drops down from the top of the screen with spring physics and settles in the exact middle of
+ * the screen on a completely transparent background.
+ */
+@Composable
+fun TopDropTransparentLoadingOverlay(
+    visible: Boolean,
+    reducedMotion: Boolean = false,
+    loaderSize: Dp = 56.dp,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.slideInVertically(
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            initialOffsetY = { fullHeight -> -fullHeight / 2 - 140 }
+        ) + androidx.compose.animation.fadeIn(
+            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+        ) + androidx.compose.animation.scaleIn(
+            initialScale = 0.72f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        ),
+        exit = androidx.compose.animation.slideOutVertically(
+            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+            targetOffsetY = { fullHeight -> -fullHeight / 2 - 140 }
+        ) + androidx.compose.animation.fadeOut(
+            animationSpec = tween(durationMillis = 200)
+        ) + androidx.compose.animation.scaleOut(
+            targetScale = 0.75f,
+            animationSpec = tween(durationMillis = 200)
+        ),
+        modifier = modifier.fillMaxSize()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .testTag("top_drop_center_loading_overlay"),
+            contentAlignment = Alignment.Center
+        ) {
+            PlayStoreScallopedLoader(
+                size = loaderSize,
+                color = Color(0xFFEBD0C7),
+                trackColor = Color(0xFF5D423B),
+                isSpinning = true,
+                reducedMotion = reducedMotion
+            )
+        }
+    }
+}
+
 
 @Composable
 fun AmbientMidnightBackground(
@@ -916,8 +975,9 @@ fun LinkFlowLogoEmblem(
 }
 
 /**
- * Google Play Store-style Pull-to-Refresh Box with the Scalloped Cookie Star
- * indicator rendered on a completely transparent background.
+ * Material 3 Expressive Pull-to-Refresh Box with the Wavy-Squiggle & Circular Track
+ * indicator that drops down from the top of the screen and settles in the middle of the screen
+ * on a completely transparent background.
  */
 @Composable
 fun PlayStorePullToRefreshBox(
@@ -927,18 +987,18 @@ fun PlayStorePullToRefreshBox(
     content: @Composable BoxScope.() -> Unit
 ) {
     var pullDistancePx by remember { mutableFloatStateOf(0f) }
-    val triggerThresholdPx = 185f
+    val triggerThresholdPx = 180f
 
     val animatedPull by animateFloatAsState(
-        targetValue = if (isRefreshing) 145f else pullDistancePx,
+        targetValue = if (isRefreshing) triggerThresholdPx else pullDistancePx,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessMediumLow
         ),
         label = "pull_offset"
     )
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(isRefreshing) {
@@ -952,9 +1012,9 @@ fun PlayStorePullToRefreshBox(
                         val change = event.changes.firstOrNull() ?: break
                         val deltaY = change.position.y - startY
 
-                        if (!isRefreshing && deltaY > 22f) {
+                        if (!isRefreshing && deltaY > 20f) {
                             draggingDown = true
-                            pullDistancePx = (deltaY * 0.50f).coerceIn(0f, 280f)
+                            pullDistancePx = (deltaY * 0.52f).coerceIn(0f, 320f)
                         } else if (deltaY < 0f && draggingDown) {
                             pullDistancePx = 0f
                             draggingDown = false
@@ -970,33 +1030,52 @@ fun PlayStorePullToRefreshBox(
                 }
             }
     ) {
+        val containerHeightPx = constraints.maxHeight.toFloat().coerceAtLeast(800f)
+        val centerTargetYPx = (containerHeightPx * 0.44f)
+
         // GPU-accelerated translation via graphicsLayer (zero layout pass during pull)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    translationY = animatedPull * 0.26f
+                    translationY = animatedPull * 0.24f
                 }
         ) {
             content()
         }
 
         // Material 3 Expressive Wavy-Squiggle Arc + Smooth Circular Track Arc on a Pure Transparent Background
+        // Drops smoothly from the top of the screen (-72px) down to the middle of the screen (centerTargetYPx)
         val visibilityFraction = (animatedPull / triggerThresholdPx).coerceIn(0f, 1.15f)
-        if (visibilityFraction > 0.04f || isRefreshing) {
+        val targetDropYPx = if (isRefreshing) {
+            centerTargetYPx
+        } else {
+            (-72f) + (visibilityFraction.coerceIn(0f, 1f) * (centerTargetYPx + 72f))
+        }
+
+        val animatedDropY by animateFloatAsState(
+            targetValue = targetDropYPx,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "top_to_center_drop_y"
+        )
+
+        if (visibilityFraction > 0.03f || isRefreshing) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .background(Color.Transparent)
                     .graphicsLayer {
-                        translationY = (animatedPull * 0.50f) + 24f
-                        alpha = if (isRefreshing) 1f else (visibilityFraction * 1.25f).coerceIn(0f, 1f)
+                        translationY = animatedDropY
+                        alpha = if (isRefreshing) 1f else (visibilityFraction * 1.35f).coerceIn(0f, 1f)
                     }
                     .testTag("pull_to_refresh_wavy_loader"),
                 contentAlignment = Alignment.Center
             ) {
                 PlayStoreScallopedLoader(
-                    size = 44.dp,
+                    size = 52.dp,
                     color = Color(0xFFEBD0C7),
                     trackColor = Color(0xFF5D423B),
                     pullFraction = visibilityFraction,

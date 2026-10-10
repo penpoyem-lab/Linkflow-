@@ -572,18 +572,107 @@ class DownloadQueueManager(
         }
     }
 
+    private suspend fun resolveLoaderToDirectStreamIfNeeded(
+        task: DownloadTaskEntity
+    ): String {
+        val rawUrl = task.targetDownloadUrl
+        if (!rawUrl.contains("loader.to/ajax/download.php", ignoreCase = true)) {
+            return rawUrl
+        }
+
+        val initReq = Request.Builder()
+            .url(rawUrl)
+            .header(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+            )
+            .header("Accept", "application/json")
+            .get()
+            .build()
+
+        var jobId = ""
+        var progressUrl = ""
+        okHttpClient.newCall(initReq).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                throw IOException("Cloud stream initializer returned HTTP ${resp.code}")
+            }
+            val bodyStr = resp.body?.string().orEmpty()
+            val json = org.json.JSONObject(bodyStr)
+            if (!json.optBoolean("success", false)) {
+                throw IOException(json.optString("message").ifBlank { "Unable to initialize cloud stream job" })
+            }
+            jobId = json.optString("id").trim()
+            val direct = json.optString("url").takeIf { it.startsWith("http") }
+                ?: json.optString("download_url").takeIf { it.startsWith("http") }
+            if (direct != null) {
+                return direct
+            }
+            progressUrl = json.optString("progress_url").takeIf { it.startsWith("http") }
+                ?: "https://loader.to/ajax/progress.php?id=$jobId"
+        }
+
+        if (jobId.isBlank()) {
+            throw IOException("Cloud stream job ID was empty")
+        }
+
+        for (pollStep in 1..30) {
+            if (pausedFlags[task.jobId] == true) {
+                throw CancellationException("Paused by user")
+            }
+            kotlinx.coroutines.delay(1100L)
+            val pollReq = Request.Builder()
+                .url(progressUrl)
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                )
+                .header("Accept", "application/json")
+                .get()
+                .build()
+
+            okHttpClient.newCall(pollReq).execute().use { pollResp ->
+                if (pollResp.isSuccessful) {
+                    val pBody = pollResp.body?.string().orEmpty()
+                    if (pBody.trimStart().startsWith("{")) {
+                        val pJson = org.json.JSONObject(pBody)
+                        val dlUrl = pJson.optString("download_url").takeIf { it.startsWith("http") }
+                        if (dlUrl != null) {
+                            return dlUrl
+                        }
+                        val successCode = pJson.optInt("success", -1)
+                        val textStatus = pJson.optString("text")
+                        if (successCode == 0 && textStatus.equals("Failed", ignoreCase = true)) {
+                            throw IOException(pJson.optString("message").ifBlank { "Stream transcode failed" })
+                        }
+                        val rawProg = pJson.optInt("progress", 50).coerceIn(10, 950)
+                        val prepPct = (rawProg / 35).coerceIn(2, 28)
+                        dao.upsertDownload(
+                            task.copy(
+                                state = DownloadJobState.PREPARING.name,
+                                progressPercent = prepPct,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        throw IOException("Timed out waiting for cloud stream container preparation")
+    }
+
     private suspend fun executeRealHttpStreamDownload(
         task: DownloadTaskEntity,
         destinationFile: File
     ) {
-        val targetUrl = task.targetDownloadUrl
+        val targetUrl = resolveLoaderToDirectStreamIfNeeded(task)
         val refererOrigin = runCatching {
             val uri = URI(task.sourceUrl.ifBlank { targetUrl })
             "${uri.scheme ?: "https"}://${uri.host ?: ""}/"
         }.getOrDefault("https://www.google.com/")
 
+        val isCloudTranscodeStream = targetUrl.contains("savenow.to", ignoreCase = true)
         val existingBytes = if (destinationFile.exists()) destinationFile.length() else 0L
-        var useRangeResume = existingBytes > 0L && task.downloadedBytes > 0L
+        var useRangeResume = existingBytes > 0L && task.downloadedBytes > 0L && !isCloudTranscodeStream
 
         // Validate server support for byte-range requests (Accept-Ranges: bytes) before attempting resume
         if (useRangeResume) {

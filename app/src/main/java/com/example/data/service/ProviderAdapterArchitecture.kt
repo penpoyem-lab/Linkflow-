@@ -24,6 +24,7 @@ enum class DetectedProviderType(
     FACEBOOK("facebook", "Facebook", 0xFF1877F2),
     REDDIT("reddit", "Reddit", 0xFFFF4500),
     VIMEO("vimeo", "Vimeo", 0xFF1AB7EA),
+    SPOTIFY("spotify", "Spotify", 0xFF1DB954),
     SOUNDCLOUD("soundcloud", "SoundCloud", 0xFFFF5500),
     PINTEREST("pinterest", "Pinterest", 0xFFE60023),
     DAILYMOTION("dailymotion", "Dailymotion", 0xFF0066DC),
@@ -57,6 +58,8 @@ object ProviderDetector {
             host.contains("reddit.com") || host.contains("redd.it") ||
                 host.contains("rxddit.com") -> DetectedProviderType.REDDIT
             host.contains("vimeo.com") -> DetectedProviderType.VIMEO
+            host.contains("spotify.com") || host.contains("spotify.link") ||
+                host.contains("spoti.fi") -> DetectedProviderType.SPOTIFY
             host.contains("soundcloud.com") -> DetectedProviderType.SOUNDCLOUD
             host.contains("pinterest.com") || host.contains("pin.it") ||
                 host.contains("pinimg.com") -> DetectedProviderType.PINTEREST
@@ -132,6 +135,7 @@ object MediaStreamValidator {
         "twitter.com", "x.com", "t.co", "vxtwitter.com", "fxtwitter.com",
         "facebook.com", "fb.watch", "fb.com",
         "reddit.com", "redd.it", "rxddit.com",
+        "spotify.com", "spotify.link", "spoti.fi",
         "threads.net", "pinterest.com", "pin.it"
     )
 
@@ -142,6 +146,7 @@ object MediaStreamValidator {
         Regex("""(?:twitter|x|vxtwitter|fxtwitter)\.com/[^/]+/status/\d+""", RegexOption.IGNORE_CASE),
         Regex("""youtube\.com/(?:watch|shorts|embed|live)""", RegexOption.IGNORE_CASE),
         Regex("""youtu\.be/[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE),
+        Regex("""open\.spotify\.com/(?:track|album|playlist|episode|embed)/""", RegexOption.IGNORE_CASE),
         Regex("""facebook\.com/(?:share|reel|watch|[^/]+/videos)/""", RegexOption.IGNORE_CASE),
         Regex("""fb\.watch/""", RegexOption.IGNORE_CASE)
     )
@@ -156,7 +161,8 @@ object MediaStreamValidator {
             lower.endsWith(".webm") || lower.endsWith(".m3u8") || lower.contains("googlevideo.com") ||
             lower.contains("cdninstagram.com") || lower.contains("fbcdn.net") ||
             lower.contains("twimg.com") || lower.contains("tikwm.com") ||
-            lower.contains("v.redd.it")
+            lower.contains("v.redd.it") || lower.contains("loader.to/ajax/download.php") ||
+            lower.contains("savenow.to/api/") || lower.contains("scdn.co/mp3-preview/")
         ) {
             return false
         }
