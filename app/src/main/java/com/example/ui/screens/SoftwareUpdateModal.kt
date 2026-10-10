@@ -417,9 +417,8 @@ fun SoftwareUpdateModal(
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         com.example.ui.components.PlayStoreScallopedLoader(
-                                            size = 24.dp,
-                                            color = Color(0xFFEBD0C7),
-                                            trackColor = Color(0xFF5D423B),
+                                            size = 22.dp,
+                                            color = Color(0xFF38BDF8),
                                             isSpinning = true,
                                             reducedMotion = reducedMotion
                                         )

@@ -581,11 +581,14 @@ fun LinkFlowApp(
                         )
                     }
 
-                    // Overlay 9: Centered Transparent Wavy Circular Loading Overlay (Drops from Top to Middle of Screen)
+                    // Overlay 9: Single Centered Transparent Morphing Shape Loading Overlay (Small & Blue, drops from top to middle)
                     TopDropTransparentLoadingOverlay(
-                        visible = otaUpdateState.phase == com.example.data.service.OtaInstallPhase.CHECKING,
+                        visible = otaUpdateState.phase == com.example.data.service.OtaInstallPhase.CHECKING &&
+                            !uiState.isAnalyzingUrl &&
+                            !uiState.isRefreshing,
                         reducedMotion = preferences.reducedMotion,
-                        loaderSize = 56.dp
+                        loaderSize = 36.dp,
+                        loaderColor = Color(0xFF38BDF8)
                     )
 
                     // Top Floating Liquid-Glass Toast Notification

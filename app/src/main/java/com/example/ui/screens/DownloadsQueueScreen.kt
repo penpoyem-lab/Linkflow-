@@ -484,9 +484,8 @@ private fun DownloadQueueItemCard(
                 ) {
                     if (isActiveTransfer) {
                         PlayStoreScallopedLoader(
-                            size = 34.dp,
-                            color = Color(0xFFEBD0C7),
-                            trackColor = Color(0xFF5D423B),
+                            size = 28.dp,
+                            color = Color(0xFF38BDF8),
                             isSpinning = true,
                             reducedMotion = reducedMotion
                         )

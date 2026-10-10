@@ -767,7 +767,7 @@ private fun SettingsLinkRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = !isLoading, onClick = onClick)
             .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -784,21 +784,11 @@ private fun SettingsLinkRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
-        if (isLoading) {
-            com.example.ui.components.PlayStoreScallopedLoader(
-                size = 26.dp,
-                color = Color(0xFFEBD0C7),
-                trackColor = Color(0xFF5D423B),
-                isSpinning = true,
-                reducedMotion = reducedMotion
-            )
-        } else {
-            Text(
-                text = ">",
-                style = MaterialTheme.typography.titleMedium,
-                color = LocalLinkFlowTokens.current.accentCyan
-            )
-        }
+        Text(
+            text = if (isLoading) "…" else ">",
+            style = MaterialTheme.typography.titleMedium,
+            color = LocalLinkFlowTokens.current.accentCyan
+        )
     }
 }
 

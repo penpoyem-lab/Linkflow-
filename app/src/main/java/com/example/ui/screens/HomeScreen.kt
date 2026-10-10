@@ -555,13 +555,7 @@ fun HomeScreen(
                 }
             }
 
-            // 4. Transparent-Background Wavy Circular Loading OR Error Banner OR Analyzed Preview Card
-            if (uiState.isAnalyzingUrl) {
-                item {
-                    TransparentScallopedLoadingView(reducedMotion = reducedMotion)
-                }
-            }
-
+            // 4. Error Banner OR Analyzed Preview Card (Loading is shown via the single centered TopDropTransparentLoadingOverlay below)
             uiState.analysisError?.let { error ->
                 item {
                     StaggeredAnimatedEntrance(index = 0, reducedMotion = reducedMotion) {
@@ -706,65 +700,12 @@ fun HomeScreen(
             }
         }
 
-        // Centered Transparent Loading Overlay that drops down from the top of the screen
+        // Single Centered Transparent Loading Overlay (Small & Blue) that drops down from the top of the screen
         TopDropTransparentLoadingOverlay(
-            visible = uiState.isAnalyzingUrl,
+            visible = uiState.isAnalyzingUrl && !uiState.isRefreshing,
             reducedMotion = reducedMotion,
-            loaderSize = 56.dp
-        )
-    }
-}
-
-/**
- * Pure transparent-background Material 3 Expressive Wavy Circular loading view
- * that animates down from the top of the screen into the middle.
- */
-@Composable
-private fun TransparentScallopedLoadingView(
-    reducedMotion: Boolean
-) {
-    val dropOffsetY = remember { androidx.compose.animation.core.Animatable(if (reducedMotion) 0f else -220f) }
-    val alphaAnim = remember { androidx.compose.animation.core.Animatable(if (reducedMotion) 1f else 0f) }
-
-    androidx.compose.runtime.LaunchedEffect(reducedMotion) {
-        if (reducedMotion) {
-            dropOffsetY.snapTo(0f)
-            alphaAnim.snapTo(1f)
-        } else {
-            kotlinx.coroutines.coroutineScope {
-                launch {
-                    alphaAnim.animateTo(1f, tween(220, easing = FastOutSlowInEasing))
-                }
-                launch {
-                    dropOffsetY.animateTo(
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 36.dp)
-            .background(Color.Transparent)
-            .graphicsLayer {
-                translationY = dropOffsetY.value
-                alpha = alphaAnim.value
-            }
-            .testTag("transparent_scalloped_loader"),
-        contentAlignment = Alignment.Center
-    ) {
-        PlayStoreScallopedLoader(
-            size = 54.dp,
-            color = Color.White,
-            isSpinning = true,
-            reducedMotion = reducedMotion
+            loaderSize = 36.dp,
+            loaderColor = Color(0xFF38BDF8)
         )
     }
 }

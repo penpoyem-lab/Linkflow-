@@ -63,8 +63,9 @@ class DownloadQueueManager(
         .build()
 
     fun getDownloadsDirectory(): File {
-        val externalDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        val baseDir = externalDir ?: File(context.filesDir, "downloads")
+        // Store working/library files in private internal app storage (context.filesDir) so Android's
+        // external MediaScanner does not index the app's working copy alongside the public MediaStore export!
+        val baseDir = File(context.filesDir, "downloads")
         if (!baseDir.exists()) {
             baseDir.mkdirs()
         }
@@ -1213,9 +1214,9 @@ class DownloadQueueManager(
     }
 
     /**
-     * Exports the downloaded media file into Android's public MediaStore / Downloads collection
-     * on API 29+ (or scans external media on older APIs) so the user can view the video/audio
-     * directly in their system Gallery, Video Player, Music Player, and Files apps.
+     * Exports the downloaded media file into Android's public MediaStore (Movies/LinkFlow for video
+     * or Music/LinkFlow for audio) on API 29+ so the user sees exactly 1 video in Gallery or 1 MP3/M4A
+     * in their Music player without duplicate copies.
      */
     private fun exportCompletedFileToSystemMediaStore(
         file: File,
@@ -1238,6 +1239,15 @@ class DownloadQueueManager(
                 "${Environment.DIRECTORY_MUSIC}/LinkFlow"
             } else {
                 "${Environment.DIRECTORY_MOVIES}/LinkFlow"
+            }
+
+            // Remove any prior MediaStore row with the exact same display name in LinkFlow folder to prevent duplicates
+            runCatching {
+                resolver.delete(
+                    collection,
+                    "${MediaStore.MediaColumns.DISPLAY_NAME} = ?",
+                    arrayOf(fileName)
+                )
             }
 
             val values = ContentValues().apply {
@@ -1263,37 +1273,21 @@ class DownloadQueueManager(
                     runCatching { resolver.delete(insertedUri, null, null) }
                 }
             }
-
-            // Also index into public Downloads/LinkFlow on API 29+
-            val downloadsValues = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                put(MediaStore.Downloads.MIME_TYPE, mimeType)
-                put(MediaStore.Downloads.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/LinkFlow")
-                put(MediaStore.Downloads.IS_PENDING, 1)
-            }
-            val dlUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, downloadsValues)
-            if (dlUri != null) {
-                try {
-                    resolver.openOutputStream(dlUri)?.use { outStream ->
-                        FileInputStream(file).use { inStream ->
-                            inStream.copyTo(outStream, bufferSize = 32 * 1024)
-                        }
-                    }
-                    val completeDl = ContentValues().apply {
-                        put(MediaStore.Downloads.IS_PENDING, 0)
-                    }
-                    resolver.update(dlUri, completeDl, null, null)
-                } catch (_: Exception) {
-                    runCatching { resolver.delete(dlUri, null, null) }
-                }
-            }
         } else {
-            MediaScannerConnection.scanFile(
-                context,
-                arrayOf(file.absolutePath),
-                arrayOf(mimeType),
-                null
+            val publicBaseDir = Environment.getExternalStoragePublicDirectory(
+                if (isAudio) Environment.DIRECTORY_MUSIC else Environment.DIRECTORY_MOVIES
             )
+            val linkFlowPublicDir = File(publicBaseDir, "LinkFlow").apply { mkdirs() }
+            val publicDestFile = File(linkFlowPublicDir, fileName)
+            runCatching {
+                file.copyTo(publicDestFile, overwrite = true)
+                MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(publicDestFile.absolutePath),
+                    arrayOf(mimeType),
+                    null
+                )
+            }
         }
     }
 }

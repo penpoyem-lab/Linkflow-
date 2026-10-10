@@ -268,8 +268,8 @@ private fun evaluateExpressivePoseRadius(
  */
 @Composable
 fun PlayStoreScallopedLoader(
-    size: Dp = 52.dp,
-    color: Color = Color.White,
+    size: Dp = 36.dp,
+    color: Color = Color(0xFF38BDF8),
     trackColor: Color = Color.Transparent,
     pullFraction: Float = 1f,
     isSpinning: Boolean = true,
@@ -387,7 +387,7 @@ fun PlayStoreScallopedLoader(
 }
 
 /**
- * Full-screen transparent loading overlay where the Material 3 Expressive Morphing Shape Loader
+ * Full-screen transparent loading overlay where a single small blue Material 3 Expressive Morphing Shape Loader
  * drops down from the top of the screen with spring physics and settles in the exact middle of
  * the screen on a completely transparent background.
  */
@@ -395,7 +395,8 @@ fun PlayStoreScallopedLoader(
 fun TopDropTransparentLoadingOverlay(
     visible: Boolean,
     reducedMotion: Boolean = false,
-    loaderSize: Dp = 62.dp,
+    loaderSize: Dp = 36.dp,
+    loaderColor: Color = Color(0xFF38BDF8),
     modifier: Modifier = Modifier
 ) {
     androidx.compose.animation.AnimatedVisibility(
@@ -435,7 +436,7 @@ fun TopDropTransparentLoadingOverlay(
         ) {
             PlayStoreScallopedLoader(
                 size = loaderSize,
-                color = Color.White,
+                color = loaderColor,
                 isSpinning = true,
                 reducedMotion = reducedMotion
             )
@@ -1085,8 +1086,8 @@ fun PlayStorePullToRefreshBox(
                 contentAlignment = Alignment.Center
             ) {
                 PlayStoreScallopedLoader(
-                    size = 56.dp,
-                    color = Color.White,
+                    size = 36.dp,
+                    color = Color(0xFF38BDF8),
                     pullFraction = visibilityFraction,
                     isSpinning = isRefreshing
                 )

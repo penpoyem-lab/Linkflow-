@@ -319,9 +319,8 @@ fun ActiveDownloadProgressModal(
                         Spacer(modifier = Modifier.height(6.dp))
                     } else if (!isPaused) {
                         PlayStoreScallopedLoader(
-                            size = 42.dp,
-                            color = Color(0xFFEBD0C7),
-                            trackColor = Color(0xFF5D423B),
+                            size = 32.dp,
+                            color = Color(0xFF38BDF8),
                             isSpinning = true,
                             reducedMotion = reducedMotion
                         )
