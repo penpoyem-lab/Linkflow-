@@ -761,9 +761,8 @@ private fun TransparentScallopedLoadingView(
         contentAlignment = Alignment.Center
     ) {
         PlayStoreScallopedLoader(
-            size = 48.dp,
-            color = Color(0xFFEBD0C7),
-            trackColor = Color(0xFF5D423B),
+            size = 54.dp,
+            color = Color.White,
             isSpinning = true,
             reducedMotion = reducedMotion
         )

@@ -191,26 +191,86 @@ fun Modifier.springBounceClickable(
         )
 }
 
+private data class ExpressiveMorphPose(
+    val lobes: Float,
+    val amp1: Float,
+    val sharp2: Float,
+    val sharp3: Float,
+    val scaleX: Float,
+    val scaleY: Float,
+    val tiltDeg: Float,
+    val baseRadiusFactor: Float
+)
+
+private val ExpressiveMorphKeyframes = listOf(
+    // 0: Rounded Pentagon (5 soft corners, flat-ish edges)
+    ExpressiveMorphPose(lobes = 5f, amp1 = 0.085f, sharp2 = -0.020f, sharp3 = 0.004f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = -18f, baseRadiusFactor = 0.80f),
+    // 1: 9-Scallop Wavy Cookie
+    ExpressiveMorphPose(lobes = 9f, amp1 = 0.068f, sharp2 = 0.006f, sharp3 = 0.0f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = 12f, baseRadiusFactor = 0.81f),
+    // 2: 4-Leaf Clover / Soft Quatrefoil
+    ExpressiveMorphPose(lobes = 4f, amp1 = 0.145f, sharp2 = -0.024f, sharp3 = 0.0f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = 45f, baseRadiusFactor = 0.77f),
+    // 3: 12-Point Sharp Starburst Cookie
+    ExpressiveMorphPose(lobes = 12f, amp1 = 0.125f, sharp2 = 0.036f, sharp3 = 0.010f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = 0f, baseRadiusFactor = 0.77f),
+    // 4: 10-Scallop Soft Flower Cookie
+    ExpressiveMorphPose(lobes = 10f, amp1 = 0.062f, sharp2 = 0.005f, sharp3 = 0.0f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = 18f, baseRadiusFactor = 0.82f),
+    // 5: Vertical Pill / Pebble Oval
+    ExpressiveMorphPose(lobes = 2f, amp1 = 0.045f, sharp2 = -0.012f, sharp3 = 0.0f, scaleX = 0.77f, scaleY = 1.12f, tiltDeg = -8f, baseRadiusFactor = 0.82f),
+    // 6: 8-Point Scalloped Star Cookie
+    ExpressiveMorphPose(lobes = 8f, amp1 = 0.105f, sharp2 = 0.018f, sharp3 = 0.0f, scaleX = 1.00f, scaleY = 1.00f, tiltDeg = 22.5f, baseRadiusFactor = 0.79f),
+    // 7: Diagonal Tilted Egg / Elliptical Bean
+    ExpressiveMorphPose(lobes = 2f, amp1 = 0.050f, sharp2 = 0.0f, sharp3 = 0.0f, scaleX = 1.15f, scaleY = 0.74f, tiltDeg = -36f, baseRadiusFactor = 0.82f),
+    // 8: 5-Lobe Organic Amoeba / Splash Flower
+    ExpressiveMorphPose(lobes = 5f, amp1 = 0.158f, sharp2 = 0.016f, sharp3 = -0.008f, scaleX = 1.02f, scaleY = 0.98f, tiltDeg = 28f, baseRadiusFactor = 0.76f)
+)
+
+private fun evaluateExpressivePoseRadius(
+    pose: ExpressiveMorphPose,
+    thetaRad: Double,
+    maxR: Float
+): Float {
+    val tiltRad = Math.toRadians(pose.tiltDeg.toDouble())
+    val relAngle = thetaRad - tiltRad
+
+    // Elliptical aspect ratio compression/expansion along pose's tilted axes
+    val cosT = cos(relAngle).toFloat()
+    val sinT = sin(relAngle).toFloat()
+    val invX = cosT / pose.scaleX
+    val invY = sinT / pose.scaleY
+    val ellipseMod = 1f / kotlin.math.sqrt((invX * invX + invY * invY).coerceAtLeast(0.0001f))
+
+    // Harmonic radial lobes (fundamental + 2nd + 3rd harmonic for crisp star tips or flat polygon sides)
+    val nTheta = pose.lobes * relAngle
+    val wave = 1f +
+        pose.amp1 * cos(nTheta).toFloat() +
+        pose.sharp2 * cos(2.0 * nTheta).toFloat() +
+        pose.sharp3 * cos(3.0 * nTheta).toFloat()
+
+    return maxR * pose.baseRadiusFactor * ellipseMod * wave
+}
+
 /**
- * Material 3 Expressive Wavy-Squiggle Arc & Smooth Circular Track Loader
- * on a completely transparent background (matching the user's uploaded reference video).
+ * Material 3 Expressive Morphing Shape Loading Indicator on a completely transparent background
+ * (matching the user's uploaded reference video).
  *
  * Visual & Motion Fidelity from the reference video:
- * - Indeterminate sweep expansion & contraction: the wavy squiggle arc smoothly expands from a
- *   short 1-wave segment (~24° sweep) to a full 8-wave segment (~276° sweep) and contracts back,
- *   while the opposite smooth circular track arc shrinks and grows inversely so both segments
- *   stay separated by clean ~16° gaps on both ends.
- * - Constant angular wave frequency (~32° per wave cycle) so as the arc grows longer, additional
- *   smooth sinusoidal wave crests appear naturally without stretching existing waves.
- * - Active wavy squiggle uses rounded stroke caps (`StrokeCap.Round`, `#EBD0C7`), while the
- *   opposite smooth circular track uses flat/butt stroke caps (`StrokeCap.Butt`, `#5D423B`).
- * - Pure transparent background (`Color.Transparent` — no circle plate, card, or shadow behind it).
+ * - Solid filled white (`Color.White` by default) organic geometric shape on a 100% transparent background.
+ * - Continuously morphs through the exact sequence of Material 3 Expressive shapes shown in the video:
+ *   1. Rounded Pentagon (5 soft corners)
+ *   2. 9-Scallop Wavy Cookie
+ *   3. 4-Leaf Clover / Quatrefoil
+ *   4. 12-Point Sharp Starburst Cookie
+ *   5. 10-Scallop Soft Flower
+ *   6. Vertical Pill / Pebble Oval
+ *   7. 8-Point Scalloped Star
+ *   8. Diagonal Tilted Elliptical Bean
+ *   9. 5-Lobe Organic Splash Flower
+ * - Uses snappy cubic-bezier spring-like morph transitions between each distinct shape while gently rotating.
  */
 @Composable
 fun PlayStoreScallopedLoader(
-    size: Dp = 48.dp,
-    color: Color = Color(0xFFEBD0C7),
-    trackColor: Color = Color(0xFF5D423B),
+    size: Dp = 52.dp,
+    color: Color = Color.White,
+    trackColor: Color = Color.Transparent,
     pullFraction: Float = 1f,
     isSpinning: Boolean = true,
     reducedMotion: Boolean = false,
@@ -218,165 +278,116 @@ fun PlayStoreScallopedLoader(
     waveAmplitudeRatio: Float = 0.038f,
     modifier: Modifier = Modifier
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "expressive_wavy_arc_loader")
+    val poseCount = ExpressiveMorphKeyframes.size
+    val infiniteTransition = rememberInfiniteTransition(label = "expressive_shape_morph_loader")
 
-    // Continuous base rotation + indeterminate head/tail advance matching the video
-    val baseRotationDeg by infiniteTransition.animateFloat(
+    // Morphs through all 9 expressive shapes over 7200ms (~800ms per shape transition, matching the video cadence)
+    val rawStageProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isSpinning && !reducedMotion) poseCount.toFloat() else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shape_morph_stage"
+    )
+
+    // Continuous smooth rotation + subtle spring step rotation during each morph
+    val continuousRotationDeg by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = if (isSpinning && !reducedMotion) 360f else 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1950, easing = LinearEasing),
+            animation = tween(durationMillis = 6400, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "wavy_arc_base_rotation"
+        label = "shape_continuous_rotation"
     )
 
-    // Cycle progress 0f -> 1f over 2500ms:
-    // 0.0 -> 0.5: Wavy arc expands from ~24° (1 wave crest) to ~276° (8.5 wave crests)
-    // 0.5 -> 1.0: Wavy arc contracts from ~276° back to ~24° while advancing its tail angle by 252°
-    val morphCycle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isSpinning && !reducedMotion) 1f else 0.28f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2500, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wavy_arc_morph_cycle"
-    )
-
-    // Organic sinusoidal ripple phase traveling along the squiggle
-    val wavePhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = if (isSpinning && !reducedMotion) (2f * PI.toFloat()) else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wavy_arc_travel_phase"
-    )
-
-    val minSweepDeg = 24f
-    val maxSweepDeg = 276f
-    val sweepDelta = maxSweepDeg - minSweepDeg
-
-    val (dynamicStartOffsetDeg, wavySweepDeg) = if (isSpinning && !reducedMotion) {
-        if (morphCycle < 0.5f) {
-            val f = FastOutSlowInEasing.transform(morphCycle * 2f)
-            val sweep = minSweepDeg + (sweepDelta * f)
-            0f to sweep
-        } else {
-            val f = FastOutSlowInEasing.transform((morphCycle - 0.5f) * 2f)
-            val sweep = maxSweepDeg - (sweepDelta * f)
-            val tailAdvance = sweepDelta * f
-            tailAdvance to sweep
-        }
+    // When dragging down during pull-to-refresh (before release), morph progressively through shapes with pullFraction
+    val effectiveStageFloat = if (isSpinning && !reducedMotion) {
+        rawStageProgress
     } else if (isSpinning) {
-        0f to 165f
+        3f // 12-point star static fallback when reducedMotion is enabled
     } else {
-        // Pull-to-refresh drag mode: sweep grows from 24° to 248° as the user pulls down from the top
-        val pullClamped = pullFraction.coerceIn(0.06f, 1.15f)
-        0f to (minSweepDeg + (pullClamped / 1.15f) * 224f)
+        (pullFraction.coerceIn(0f, 1.15f) * 4.2f) % poseCount.toFloat()
     }
 
-    val effectiveRotation = if (isSpinning) {
-        (baseRotationDeg + dynamicStartOffsetDeg) % 360f
+    val stageIndex = effectiveStageFloat.toInt().coerceIn(0, poseCount - 1)
+    val nextStageIndex = (stageIndex + 1) % poseCount
+    val localFraction = (effectiveStageFloat - stageIndex.toFloat()).coerceIn(0f, 1f)
+
+    // Hold each distinct shape briefly (~25% of step) then morph briskly with FastOutSlowInEasing (~75% of step)
+    // so every shape (Pentagon, Clover, 12-Star, Pill, Bean, Scallop) is unmistakably recognizable like in the video!
+    val morphT = if (localFraction < 0.22f) {
+        0f
     } else {
-        (pullFraction * 260f) - 90f
+        FastOutSlowInEasing.transform(((localFraction - 0.22f) / 0.78f).coerceIn(0f, 1f))
     }
 
-    val effectiveScale = if (isSpinning) {
+    // Subtle scale pulse during the peak of each shape morph
+    val morphBounceScale = if (isSpinning && !reducedMotion) {
+        1f + 0.06f * sin(morphT * PI.toFloat())
+    } else if (isSpinning) {
         1f
     } else {
-        pullFraction.coerceIn(0.32f, 1.05f)
+        pullFraction.coerceIn(0.30f, 1.05f)
     }
 
-    // Two clean gaps separating the wavy arc and the smooth circular track arc
-    val gapDeg = 16f
-    val trackStartDeg = wavySweepDeg + gapDeg
-    val trackSweepDeg = (360f - wavySweepDeg - (gapDeg * 2f)).coerceAtLeast(16f)
+    val stepRotationBoost = (stageIndex * 40f) + (morphT * 40f)
+    val totalRotationDeg = if (isSpinning) {
+        (continuousRotationDeg * 0.45f + stepRotationBoost) % 360f
+    } else {
+        (pullFraction * 220f)
+    }
 
-    val wavyPath = remember { Path() }
+    val currentPose = ExpressiveMorphKeyframes[stageIndex]
+    val nextPose = ExpressiveMorphKeyframes[nextStageIndex]
+    val morphPath = remember { Path() }
 
     Canvas(
         modifier = modifier
             .size(size)
             .background(Color.Transparent)
             .graphicsLayer {
-                scaleX = effectiveScale
-                scaleY = effectiveScale
+                scaleX = morphBounceScale
+                scaleY = morphBounceScale
             }
     ) {
         val cx = this.size.width / 2f
         val cy = this.size.height / 2f
-        val minDim = this.size.minDimension
-        // Crisp, slender stroke width matching the video
-        val strokePx = (minDim * strokeRatio).coerceAtLeast(1.8.dp.toPx())
-        val waveAmplitudePx = minDim * waveAmplitudeRatio
-        val baseRadius = (minDim / 2f) - strokePx - waveAmplitudePx - 1.dp.toPx()
+        val maxR = this.size.minDimension / 2f
 
-        rotate(degrees = effectiveRotation, pivot = Offset(cx, cy)) {
-            // 1. Draw the opposite smooth circular track arc segment with flat/butt caps
-            if (trackSweepDeg > 4f) {
-                drawArc(
-                    color = trackColor,
-                    startAngle = trackStartDeg,
-                    sweepAngle = trackSweepDeg,
-                    useCenter = false,
-                    topLeft = Offset(cx - baseRadius, cy - baseRadius),
-                    size = Size(baseRadius * 2f, baseRadius * 2f),
-                    style = Stroke(
-                        width = strokePx,
-                        cap = StrokeCap.Butt
-                    )
-                )
-            }
+        rotate(degrees = totalRotationDeg, pivot = Offset(cx, cy)) {
+            val samplePoints = 180
+            morphPath.reset()
 
-            // 2. Draw the sinusoidal wavy squiggle active arc segment (0..wavySweepDeg)
-            // Keep angular wavelength constant (~32° per full wave cycle) so expanding from
-            // 24° to 276° smoothly reveals 1 -> 8.5 slender rounded wave crests
-            val degreesPerWave = 32f
-            val steps = (wavySweepDeg * 1.1f).roundToInt().coerceIn(48, 220)
-            wavyPath.reset()
+            for (i in 0 until samplePoints) {
+                val theta = (i.toDouble() / samplePoints.toDouble()) * 2.0 * PI
+                val r1 = evaluateExpressivePoseRadius(currentPose, theta, maxR)
+                val r2 = evaluateExpressivePoseRadius(nextPose, theta, maxR)
+                val r = r1 + (r2 - r1) * morphT
 
-            for (i in 0..steps) {
-                val fraction = i.toFloat() / steps.toFloat()
-                val angleDeg = fraction * wavySweepDeg
-                val angleRad = Math.toRadians(angleDeg.toDouble())
-
-                // Taper wave amplitude gently at the very tips so the slim rounded caps sit cleanly on the ring
-                val tipAngleDist = minOf(angleDeg, wavySweepDeg - angleDeg)
-                val edgeEnvelope = (tipAngleDist / 10f).coerceIn(0.18f, 1f)
-
-                val waveCyclesAtAngle = angleDeg / degreesPerWave
-                val waveOffset = waveAmplitudePx * edgeEnvelope *
-                    sin((waveCyclesAtAngle * 2.0 * PI) - wavePhase).toFloat()
-
-                val r = baseRadius + waveOffset
-                val x = cx + r * cos(angleRad).toFloat()
-                val y = cy + r * sin(angleRad).toFloat()
+                val x = cx + r * cos(theta).toFloat()
+                val y = cy + r * sin(theta).toFloat()
 
                 if (i == 0) {
-                    wavyPath.moveTo(x, y)
+                    morphPath.moveTo(x, y)
                 } else {
-                    wavyPath.lineTo(x, y)
+                    morphPath.lineTo(x, y)
                 }
             }
+            morphPath.close()
 
             drawPath(
-                path = wavyPath,
-                color = color,
-                style = Stroke(
-                    width = strokePx,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round
-                )
+                path = morphPath,
+                color = color
             )
         }
     }
 }
 
 /**
- * Full-screen transparent loading overlay where the Material 3 Expressive Wavy Circular Loader
+ * Full-screen transparent loading overlay where the Material 3 Expressive Morphing Shape Loader
  * drops down from the top of the screen with spring physics and settles in the exact middle of
  * the screen on a completely transparent background.
  */
@@ -384,7 +395,7 @@ fun PlayStoreScallopedLoader(
 fun TopDropTransparentLoadingOverlay(
     visible: Boolean,
     reducedMotion: Boolean = false,
-    loaderSize: Dp = 56.dp,
+    loaderSize: Dp = 62.dp,
     modifier: Modifier = Modifier
 ) {
     androidx.compose.animation.AnimatedVisibility(
@@ -394,11 +405,11 @@ fun TopDropTransparentLoadingOverlay(
                 dampingRatio = Spring.DampingRatioLowBouncy,
                 stiffness = Spring.StiffnessMediumLow
             ),
-            initialOffsetY = { fullHeight -> -fullHeight / 2 - 140 }
+            initialOffsetY = { fullHeight -> -fullHeight / 2 - 160 }
         ) + androidx.compose.animation.fadeIn(
-            animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing)
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
         ) + androidx.compose.animation.scaleIn(
-            initialScale = 0.72f,
+            initialScale = 0.65f,
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
                 stiffness = Spring.StiffnessMediumLow
@@ -406,12 +417,12 @@ fun TopDropTransparentLoadingOverlay(
         ),
         exit = androidx.compose.animation.slideOutVertically(
             animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
-            targetOffsetY = { fullHeight -> -fullHeight / 2 - 140 }
+            targetOffsetY = { fullHeight -> -fullHeight / 2 - 160 }
         ) + androidx.compose.animation.fadeOut(
-            animationSpec = tween(durationMillis = 200)
+            animationSpec = tween(durationMillis = 180)
         ) + androidx.compose.animation.scaleOut(
-            targetScale = 0.75f,
-            animationSpec = tween(durationMillis = 200)
+            targetScale = 0.70f,
+            animationSpec = tween(durationMillis = 180)
         ),
         modifier = modifier.fillMaxSize()
     ) {
@@ -424,8 +435,7 @@ fun TopDropTransparentLoadingOverlay(
         ) {
             PlayStoreScallopedLoader(
                 size = loaderSize,
-                color = Color(0xFFEBD0C7),
-                trackColor = Color(0xFF5D423B),
+                color = Color.White,
                 isSpinning = true,
                 reducedMotion = reducedMotion
             )
@@ -975,7 +985,7 @@ fun LinkFlowLogoEmblem(
 }
 
 /**
- * Material 3 Expressive Pull-to-Refresh Box with the Wavy-Squiggle & Circular Track
+ * Material 3 Expressive Pull-to-Refresh Box with the Morphing Shape
  * indicator that drops down from the top of the screen and settles in the middle of the screen
  * on a completely transparent background.
  */
@@ -1044,7 +1054,7 @@ fun PlayStorePullToRefreshBox(
             content()
         }
 
-        // Material 3 Expressive Wavy-Squiggle Arc + Smooth Circular Track Arc on a Pure Transparent Background
+        // Material 3 Expressive Morphing Shape Indicator on a Pure Transparent Background
         // Drops smoothly from the top of the screen (-72px) down to the middle of the screen (centerTargetYPx)
         val visibilityFraction = (animatedPull / triggerThresholdPx).coerceIn(0f, 1.15f)
         val targetDropYPx = if (isRefreshing) {
@@ -1075,9 +1085,8 @@ fun PlayStorePullToRefreshBox(
                 contentAlignment = Alignment.Center
             ) {
                 PlayStoreScallopedLoader(
-                    size = 52.dp,
-                    color = Color(0xFFEBD0C7),
-                    trackColor = Color(0xFF5D423B),
+                    size = 56.dp,
+                    color = Color.White,
                     pullFraction = visibilityFraction,
                     isSpinning = isRefreshing
                 )
