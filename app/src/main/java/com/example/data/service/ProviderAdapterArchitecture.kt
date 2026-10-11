@@ -34,6 +34,7 @@ enum class DetectedProviderType(
     SNAPCHAT("snapchat", "Snapchat", 0xFFFFFC00),
     INTERNET_ARCHIVE("internet_archive", "Internet Archive", 0xFF2563EB),
     WIKIMEDIA("wikimedia", "Wikimedia Commons", 0xFF10B981),
+    ANIVORTEX("anivortex", "AniVortex", 0xFF8B5CF6),
     DIRECT_MEDIA("direct_media", "Direct Media", 0xFF10B981),
     GENERIC_WEBPAGE("generic_webpage", "Web Media", 0xFF6366F1)
 }
@@ -60,6 +61,8 @@ object ProviderDetector {
             host.contains("vimeo.com") -> DetectedProviderType.VIMEO
             host.contains("spotify.com") || host.contains("spotify.link") ||
                 host.contains("spoti.fi") -> DetectedProviderType.SPOTIFY
+            host.contains("anivortex.in") || host.contains("anivortex.com") ||
+                host.contains("anivortex") -> DetectedProviderType.ANIVORTEX
             host.contains("soundcloud.com") -> DetectedProviderType.SOUNDCLOUD
             host.contains("pinterest.com") || host.contains("pin.it") ||
                 host.contains("pinimg.com") -> DetectedProviderType.PINTEREST
@@ -136,6 +139,7 @@ object MediaStreamValidator {
         "facebook.com", "fb.watch", "fb.com",
         "reddit.com", "redd.it", "rxddit.com",
         "spotify.com", "spotify.link", "spoti.fi",
+        "anivortex.in", "anivortex.com",
         "threads.net", "pinterest.com", "pin.it"
     )
 
@@ -147,6 +151,7 @@ object MediaStreamValidator {
         Regex("""youtube\.com/(?:watch|shorts|embed|live)""", RegexOption.IGNORE_CASE),
         Regex("""youtu\.be/[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE),
         Regex("""open\.spotify\.com/(?:track|album|playlist|episode|embed)/""", RegexOption.IGNORE_CASE),
+        Regex("""anivortex\.(?:in|com)/(?:watch|anime|episode|series|movie)/""", RegexOption.IGNORE_CASE),
         Regex("""facebook\.com/(?:share|reel|watch|[^/]+/videos)/""", RegexOption.IGNORE_CASE),
         Regex("""fb\.watch/""", RegexOption.IGNORE_CASE)
     )

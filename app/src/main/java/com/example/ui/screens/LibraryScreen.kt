@@ -296,25 +296,36 @@ fun LibraryScreen(
                             }
                         }
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        // Segmented filter for All, Video, and Audio
+                        LiquidGlassCard(
+                            cornerRadius = 20.dp,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            FilterChipPill(
-                                label = "All Files",
-                                selected = formatFilter == null,
-                                onClick = { onFormatFilterChange(null) }
-                            )
-                            FilterChipPill(
-                                label = "MP4 Video",
-                                selected = formatFilter == MediaFormat.MP4,
-                                onClick = { onFormatFilterChange(MediaFormat.MP4) }
-                            )
-                            FilterChipPill(
-                                label = "MP3 Audio",
-                                selected = formatFilter == MediaFormat.MP3,
-                                onClick = { onFormatFilterChange(MediaFormat.MP3) }
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChipPill(
+                                    label = "All",
+                                    selected = formatFilter == null,
+                                    onClick = { onFormatFilterChange(null) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChipPill(
+                                    label = "Video",
+                                    selected = formatFilter == MediaFormat.MP4,
+                                    onClick = { onFormatFilterChange(MediaFormat.MP4) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChipPill(
+                                    label = "Audio",
+                                    selected = formatFilter == MediaFormat.MP3,
+                                    onClick = { onFormatFilterChange(MediaFormat.MP3) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -476,11 +487,12 @@ fun LibraryScreen(
 private fun FilterChipPill(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val tokens = LocalLinkFlowTokens.current
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.03f else 1f,
+        targetValue = if (selected) 1.0f else 0.97f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessMedium
@@ -488,50 +500,30 @@ private fun FilterChipPill(
         label = "chip_scale"
     )
     Box(
-        modifier = Modifier
+        modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(16.dp))
             .background(
                 if (selected) {
                     Brush.linearGradient(
                         listOf(
-                            tokens.accentBlue.copy(alpha = 0.90f),
-                            tokens.accentCyan.copy(alpha = 0.78f),
-                            tokens.accentViolet.copy(alpha = 0.80f)
+                            Color(0xFFA855F7),
+                            tokens.accentBlue
                         )
                     )
                 } else {
                     Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = if (tokens.isDark) 0.12f else 0.75f),
-                            tokens.glassSurfaceElevated
-                        )
-                    )
-                }
-            )
-            .then(
-                if (selected) {
-                    Modifier.border(
-                        width = 1.dp,
-                        brush = Brush.verticalGradient(
-                            listOf(Color.White.copy(alpha = 0.80f), tokens.accentCyan.copy(alpha = 0.45f))
-                        ),
-                        shape = RoundedCornerShape(18.dp)
-                    )
-                } else {
-                    Modifier.border(
-                        width = 1.dp,
-                        color = tokens.glassBorderSubtle,
-                        shape = RoundedCornerShape(18.dp)
+                        listOf(Color.Transparent, Color.Transparent)
                     )
                 }
             )
             .springBounceClickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 9.dp)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelMedium.copy(
+            style = MaterialTheme.typography.labelLarge.copy(
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
             ),
             color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
@@ -567,7 +559,7 @@ private fun LibraryGridItemCard(
                     .clip(RoundedCornerShape(14.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(tokens.accentBlue.copy(alpha = 0.35f), tokens.accentViolet.copy(alpha = 0.35f))
+                            listOf(tokens.accentBlue.copy(alpha = 0.22f), tokens.accentViolet.copy(alpha = 0.22f))
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -576,14 +568,14 @@ private fun LibraryGridItemCard(
                     coil.compose.AsyncImage(
                         model = task.thumbnailUrl,
                         contentDescription = task.title,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Icon(
                         imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
                         contentDescription = task.title,
-                        tint = Color.White,
+                        tint = tokens.accentBlue,
                         modifier = Modifier.size(36.dp)
                     )
                 }
@@ -596,7 +588,7 @@ private fun LibraryGridItemCard(
                 ) {
                     Text(
                         text = task.format,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
                         color = Color.White
                     )
                 }
@@ -637,7 +629,7 @@ private fun LibraryGridItemCard(
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = "Share",
-                        tint = tokens.accentCyan,
+                        tint = tokens.accentBlue,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -683,17 +675,26 @@ private fun LibraryListItemCard(
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(tokens.accentBlue.copy(alpha = 0.35f), tokens.accentViolet.copy(alpha = 0.35f))
+                            listOf(tokens.accentBlue.copy(alpha = 0.22f), tokens.accentViolet.copy(alpha = 0.22f))
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
-                    contentDescription = task.title,
-                    tint = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
+                if (!task.thumbnailUrl.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = task.thumbnailUrl,
+                        contentDescription = task.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
+                        contentDescription = task.title,
+                        tint = tokens.accentBlue,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -715,7 +716,7 @@ private fun LibraryListItemCard(
                 Icon(Icons.Default.Edit, contentDescription = "Rename", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onShare, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Default.Share, contentDescription = "Share", tint = tokens.accentCyan, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Share, contentDescription = "Share", tint = tokens.accentBlue, modifier = Modifier.size(18.dp))
             }
             IconButton(onClick = onDetails, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Info, contentDescription = "Details", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
@@ -813,7 +814,7 @@ fun MediaPlaybackModal(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF2050811))
+            .background(if (tokens.isDark) Color(0xF2050811) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(16.dp)
             .testTag("media_playback_modal"),
@@ -842,16 +843,16 @@ fun MediaPlaybackModal(
                         Icon(
                             imageVector = if (isAudioFormat) Icons.Default.AudioFile else Icons.Default.VideoLibrary,
                             contentDescription = null,
-                            tint = tokens.accentCyan
+                            tint = tokens.accentBlue
                         )
                         Text(
                             text = if (isAudioFormat) "LinkFlow Audio Player" else "LinkFlow Media Player",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Close player", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Close player", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
@@ -862,7 +863,7 @@ fun MediaPlaybackModal(
                         .clip(RoundedCornerShape(20.dp))
                         .background(
                             Brush.linearGradient(
-                                listOf(tokens.accentBlue.copy(alpha = 0.35f), tokens.accentViolet.copy(alpha = 0.35f))
+                                listOf(tokens.accentBlue.copy(alpha = 0.25f), tokens.accentViolet.copy(alpha = 0.25f))
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -887,7 +888,7 @@ fun MediaPlaybackModal(
                             coil.compose.AsyncImage(
                                 model = task.thumbnailUrl,
                                 contentDescription = task.title,
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .graphicsLayer { alpha = 0.45f }
@@ -913,7 +914,7 @@ fun MediaPlaybackModal(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(tokens.accentBlue.copy(alpha = 0.85f))
+                                .background(tokens.accentBlue.copy(alpha = 0.88f))
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -929,12 +930,12 @@ fun MediaPlaybackModal(
                     Text(
                         text = task.title,
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "${task.fileName} • ${task.qualityLabel} • ${FormatUtils.formatBytes(task.totalBytes)}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     playbackError?.let { err ->
                         Text(
@@ -952,8 +953,8 @@ fun MediaPlaybackModal(
 
                 LinearProgressIndicator(
                     progress = { progress },
-                    color = tokens.accentCyan,
-                    trackColor = Color.White.copy(alpha = 0.15f),
+                    color = tokens.accentBlue,
+                    trackColor = tokens.accentBlue.copy(alpha = 0.14f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)

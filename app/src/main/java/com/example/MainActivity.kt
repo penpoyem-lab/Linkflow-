@@ -76,7 +76,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
+        )
         extractSharedTextFromIntent(intent)?.let { shared ->
             incomingSharedTextState.value = shared
         }
@@ -193,11 +202,12 @@ fun LinkFlowApp(
                         containerColor = Color.Transparent,
                         contentWindowInsets = WindowInsets(0, 0, 0, 0),
                         bottomBar = {
-                            LiquidGlassBottomNavigation(
+                            com.example.ui.components.FloatingBottomNavigationBar(
                                 currentTab = uiState.currentTab,
                                 activeDownloadCount = activeDownloadCount,
                                 onSelectTab = { viewModel.selectTab(it) },
-                                reducedMotion = preferences.reducedMotion
+                                reducedMotion = preferences.reducedMotion,
+                                hapticEnabled = preferences.hapticFeedbackEnabled
                             )
                         }
                     ) { innerPadding ->
@@ -617,7 +627,7 @@ fun LinkFlowApp(
                                     style = MaterialTheme.typography.labelLarge.copy(
                                         fontWeight = FontWeight.SemiBold
                                     ),
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
                                 )
                             }

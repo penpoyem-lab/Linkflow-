@@ -52,7 +52,7 @@ data class StorageMetrics(
 )
 
 data class LinkFlowUiState(
-    val showSplash: Boolean = true,
+    val showSplash: Boolean = false,
     val currentTab: PrimaryTab = PrimaryTab.HOME,
     val urlInput: String = "",
     val quickFormatSelection: MediaFormat = MediaFormat.MP4,

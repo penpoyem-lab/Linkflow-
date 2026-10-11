@@ -32,44 +32,45 @@ data class LinkFlowDesignTokens(
 
 val LocalLinkFlowTokens = staticCompositionLocalOf {
     LinkFlowDesignTokens(
-        isDark = true,
-        glassSurface = GlassSurfaceDark,
-        glassSurfaceElevated = GlassSurfaceHighlightDark,
-        glassBorder = GlassBorderDark,
-        glassBorderSubtle = GlassBorderSubtleDark,
-        accentCyan = LuminousCyanBright,
-        accentBlue = ElectricBlueBright,
-        accentViolet = NeonVioletBright,
-        primaryGradient = Brush.linearGradient(listOf(ElectricBlueBright, LuminousCyanBright)),
+        isDark = false,
+        glassSurface = FrostedWhiteSurface,
+        glassSurfaceElevated = FrostedWhiteElevated,
+        glassBorder = GlassBorderLavender,
+        glassBorderSubtle = GlassBorderSubtleLight,
+        accentCyan = LilacAccent,
+        accentBlue = VioletPrimary,
+        accentViolet = VioletDeep,
+        primaryGradient = Brush.linearGradient(listOf(LilacAccent, VioletPrimary, IndigoAccent)),
         glassBorderGradient = Brush.linearGradient(
             listOf(
-                Color(0x9938BDF8),
-                Color(0x2694A3B8),
-                Color(0x66818CF8)
+                Color.White.copy(alpha = 0.92f),
+                LilacAccent.copy(alpha = 0.32f),
+                Color(0x2894A3B8),
+                VioletPrimary.copy(alpha = 0.25f)
             )
         ),
         cardBackgroundGradient = Brush.verticalGradient(
             listOf(
-                Color(0x401E294B),
-                Color(0x220F172A)
+                Color(0xF5FFFFFF),
+                Color(0xEBFAF8FF)
             )
         ),
         successColor = EmeraldSuccess,
-        warningColor = Color(0xFFF59E0B),
+        warningColor = Color(0xFFD97706),
         errorColor = CoralError
     )
 }
 
 private val DarkColorScheme = darkColorScheme(
-    primary = ElectricBlueBright,
+    primary = LilacAccent,
     onPrimary = Color.White,
     primaryContainer = MidnightElevated,
-    onPrimaryContainer = LuminousCyanBright,
-    secondary = LuminousCyanBright,
-    onSecondary = MidnightObsidian,
-    secondaryContainer = Color(0xFF164E63),
-    onSecondaryContainer = Color(0xFFCFFAFE),
-    tertiary = NeonVioletBright,
+    onPrimaryContainer = LavenderSoft,
+    secondary = VioletPrimary,
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFF2E1065),
+    onSecondaryContainer = Color(0xFFF3E8FF),
+    tertiary = IndigoAccent,
     onTertiary = Color.White,
     background = MidnightObsidian,
     onBackground = TextPrimaryDark,
@@ -84,17 +85,17 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = ElectricBlue,
+    primary = VioletPrimary,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDBEAFE),
-    onPrimaryContainer = Color(0xFF1E3A8A),
-    secondary = LuminousCyan,
+    primaryContainer = LavenderTint,
+    onPrimaryContainer = Color(0xFF3B0764),
+    secondary = LilacAccent,
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFCFFAFE),
-    onSecondaryContainer = Color(0xFF164E63),
-    tertiary = NeonViolet,
+    secondaryContainer = Color(0xFFEDE9FE),
+    onSecondaryContainer = Color(0xFF4C1D95),
+    tertiary = IndigoAccent,
     onTertiary = Color.White,
-    background = LightBackground,
+    background = PearlWhiteBg,
     onBackground = TextPrimaryLight,
     surface = LightSurface,
     onSurface = TextPrimaryLight,
@@ -102,40 +103,40 @@ private val LightColorScheme = lightColorScheme(
     onSurfaceVariant = TextSecondaryLight,
     error = CoralError,
     onError = Color.White,
-    outline = GlassBorderLight,
-    outlineVariant = Color(0xFFCBD5E1)
+    outline = GlassBorderLavender,
+    outlineVariant = Color(0xFFE2E8F0)
 )
 
 val LinkFlowShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(34.dp)
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(16.dp),
+    medium = RoundedCornerShape(22.dp),
+    large = RoundedCornerShape(28.dp),
+    extraLarge = RoundedCornerShape(36.dp)
 )
 
 @Composable
 fun LinkFlowTheme(
-    themeMode: String = "DARK", // "DARK", "LIGHT", "SYSTEM"
-    accentPreset: String = "ELECTRIC_CYAN", // "ELECTRIC_CYAN", "VIOLET_PULSE", "EMERALD_GLOW"
+    themeMode: String = "LIGHT", // "LIGHT" (default), "DARK", "SYSTEM"
+    accentPreset: String = "VIOLET_PULSE", // "VIOLET_PULSE" (default), "ELECTRIC_CYAN", "EMERALD_GLOW"
     content: @Composable () -> Unit
 ) {
     val isDark = when (themeMode) {
-        "LIGHT" -> false
+        "DARK" -> true
         "SYSTEM" -> isSystemInDarkTheme()
-        else -> true
+        else -> false
     }
 
     val (primaryAccent, secondaryAccent) = when (accentPreset) {
-        "VIOLET_PULSE" -> NeonVioletBright to ElectricBlueBright
-        "EMERALD_GLOW" -> EmeraldSuccess to LuminousCyanBright
-        else -> ElectricBlueBright to LuminousCyanBright
+        "ELECTRIC_CYAN" -> Color(0xFF6366F1) to Color(0xFF8B5CF6)
+        "EMERALD_GLOW" -> EmeraldSuccess to Color(0xFF14B8A6)
+        else -> VioletPrimary to LilacAccent
     }
 
     val colorScheme = if (isDark) {
         DarkColorScheme.copy(
-            primary = primaryAccent,
-            secondary = secondaryAccent
+            primary = secondaryAccent,
+            secondary = primaryAccent
         )
     } else {
         LightColorScheme.copy(
@@ -147,28 +148,26 @@ fun LinkFlowTheme(
     val tokens = if (isDark) {
         LinkFlowDesignTokens(
             isDark = true,
-            glassSurface = Color(0x40162244),
-            glassSurfaceElevated = Color(0x5E233464),
-            glassBorder = primaryAccent.copy(alpha = 0.45f),
-            glassBorderSubtle = Color(0x3694A3B8),
+            glassSurface = Color(0x521B1738),
+            glassSurfaceElevated = Color(0x6E27224E),
+            glassBorder = secondaryAccent.copy(alpha = 0.36f),
+            glassBorderSubtle = Color(0x2E94A3B8),
             accentCyan = secondaryAccent,
             accentBlue = primaryAccent,
-            accentViolet = NeonVioletBright,
-            primaryGradient = Brush.linearGradient(listOf(primaryAccent, secondaryAccent)),
+            accentViolet = LilacAccent,
+            primaryGradient = Brush.linearGradient(listOf(secondaryAccent, primaryAccent, IndigoAccent)),
             glassBorderGradient = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.48f),
-                    secondaryAccent.copy(alpha = 0.68f),
-                    Color(0x2894A3B8),
-                    primaryAccent.copy(alpha = 0.52f),
-                    Color.White.copy(alpha = 0.28f)
+                    Color.White.copy(alpha = 0.32f),
+                    secondaryAccent.copy(alpha = 0.45f),
+                    Color(0x2294A3B8),
+                    primaryAccent.copy(alpha = 0.35f)
                 )
             ),
             cardBackgroundGradient = Brush.verticalGradient(
                 listOf(
-                    Color(0x5E1F2E5A),
-                    Color(0x38131D3B),
-                    Color(0x2B0B1124)
+                    Color(0x66221D42),
+                    Color(0x4816132E)
                 )
             ),
             successColor = EmeraldSuccess,
@@ -178,27 +177,33 @@ fun LinkFlowTheme(
     } else {
         LinkFlowDesignTokens(
             isDark = false,
-            glassSurface = Color(0xD9FFFFFF),
-            glassSurfaceElevated = Color(0xF2FFFFFF),
-            glassBorder = primaryAccent.copy(alpha = 0.42f),
-            glassBorderSubtle = Color(0x4064748B),
-            accentCyan = secondaryAccent,
+            glassSurface = Color(0xEBFFFFFF),
+            glassSurfaceElevated = Color(0xF8FFFFFF),
+            glassBorder = primaryAccent.copy(alpha = 0.24f),
+            glassBorderSubtle = Color(0x2664748B),
+            accentCyan = primaryAccent,
             accentBlue = primaryAccent,
-            accentViolet = NeonViolet,
-            primaryGradient = Brush.linearGradient(listOf(primaryAccent, secondaryAccent)),
+            accentViolet = secondaryAccent,
+            primaryGradient = Brush.linearGradient(
+                listOf(
+                    Color(0xFFA855F7),
+                    primaryAccent,
+                    Color(0xFF6366F1)
+                )
+            ),
             glassBorderGradient = Brush.linearGradient(
                 listOf(
-                    Color.White.copy(alpha = 0.90f),
-                    primaryAccent.copy(alpha = 0.58f),
-                    Color(0x3894A3B8),
-                    secondaryAccent.copy(alpha = 0.48f)
+                    Color.White.copy(alpha = 0.95f),
+                    primaryAccent.copy(alpha = 0.22f),
+                    Color(0x1F94A3B8),
+                    secondaryAccent.copy(alpha = 0.20f)
                 )
             ),
             cardBackgroundGradient = Brush.verticalGradient(
                 listOf(
-                    Color(0xF2FFFFFF),
-                    Color(0xE0F1F5F9),
-                    Color(0xD4E2E8F0)
+                    Color(0xFAFFFFFF),
+                    Color(0xF0FAF8FF),
+                    Color(0xE8F3EFFE)
                 )
             ),
             successColor = EmeraldSuccess,
@@ -219,7 +224,7 @@ fun LinkFlowTheme(
 
 @Composable
 fun MyApplicationTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
     LinkFlowTheme(themeMode = if (darkTheme) "DARK" else "LIGHT", content = content)

@@ -163,7 +163,7 @@ fun SettingsScreen(
                         title = "Appearance & Branding"
                     )
 
-                    // Theme mode selector: Dark / Light / System
+                    // Theme mode selector: Light Glass (default) / Dark Glass / System
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             text = "Theme Mode",
@@ -174,13 +174,14 @@ fun SettingsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            listOf("DARK" to "Dark Glass", "LIGHT" to "Light Glass", "SYSTEM" to "System").forEach { (key, label) ->
+                            listOf("LIGHT" to "Light Glass", "DARK" to "Dark Glass", "SYSTEM" to "System").forEach { (key, label) ->
                                 val selected = preferences.themeMode == key
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(RoundedCornerShape(14.dp))
                                         .background(if (selected) tokens.accentBlue else tokens.glassSurfaceElevated)
+                                        .border(1.dp, if (selected) tokens.accentBlue else tokens.glassBorderSubtle, RoundedCornerShape(14.dp))
                                         .springBounceClickable { onThemeModeChange(key) }
                                         .padding(vertical = 10.dp)
                                         .testTag("theme_mode_$key"),
@@ -210,8 +211,8 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             listOf(
-                                "ELECTRIC_CYAN" to "Electric Cyan",
                                 "VIOLET_PULSE" to "Violet Pulse",
+                                "ELECTRIC_CYAN" to "Electric Cyan",
                                 "EMERALD_GLOW" to "Emerald Glow"
                             ).forEach { (key, label) ->
                                 val selected = preferences.accentPreset == key
@@ -220,6 +221,7 @@ fun SettingsScreen(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(14.dp))
                                         .background(if (selected) tokens.accentBlue else tokens.glassSurfaceElevated)
+                                        .border(1.dp, if (selected) tokens.accentBlue else tokens.glassBorderSubtle, RoundedCornerShape(14.dp))
                                         .springBounceClickable { onAccentPresetChange(key) }
                                         .padding(vertical = 10.dp),
                                     contentAlignment = Alignment.Center
@@ -241,7 +243,8 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color.Black.copy(alpha = 0.2f))
+                            .background(tokens.accentBlue.copy(alpha = 0.08f))
+                            .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(14.dp))
                             .springBounceClickable { showBrandDialog = true }
                             .padding(12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -261,8 +264,8 @@ fun SettingsScreen(
                         }
                         Text(
                             text = "Customize >",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = tokens.accentCyan
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = tokens.accentBlue
                         )
                     }
                 }
@@ -520,40 +523,40 @@ fun SettingsScreen(
                         reducedMotion = preferences.reducedMotion,
                         onClick = onCheckForUpdates
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "Preview Software Update Modal",
                         subtitle = "Open the full-screen Liquid-Glass OTA Update dialog & changelog viewer",
                         onClick = onPreviewUpdateDialog
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "GitHub Release Repository",
                         subtitle = "https://github.com/${preferences.githubRepoSlug}/releases/latest",
                         onClick = { showRepoDialog = true }
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "Supported Sources & Adapter Status",
                         subtitle = "Inspect verified Open-CDN, Direct HTTP, and oEmbed adapters",
                         onClick = onShowSupportedSources
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "Privacy Policy & Terms of Use",
                         subtitle = "SSRF protection, copyright compliance, and zero-tracking policy",
                         onClick = onShowPrivacyTerms
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "Open-Source License & Notices",
                         subtitle = "MIT License • Apache 2.0 Third-Party attributions",
                         onClick = { showLicenseSheet = true }
                     )
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                    HorizontalDivider(color = tokens.glassBorderSubtle)
                     SettingsLinkRow(
                         title = "About ${preferences.appBrandName}",
-                        subtitle = "Version 2.4.0 (Build 240) • Liquid-Glass Architecture",
+                        subtitle = "Version 3.0.0 (Build 300) • Liquid-Glass Architecture",
                         onClick = onShowAbout
                     )
                 }
@@ -708,7 +711,7 @@ private fun SectionHeaderRow(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = tokens.accentCyan,
+            tint = tokens.accentBlue,
             modifier = Modifier.size(20.dp)
         )
         Text(
@@ -787,7 +790,7 @@ private fun SettingsLinkRow(
         Text(
             text = if (isLoading) "…" else ">",
             style = MaterialTheme.typography.titleMedium,
-            color = LocalLinkFlowTokens.current.accentCyan
+            color = LocalLinkFlowTokens.current.accentBlue
         )
     }
 }
@@ -801,7 +804,7 @@ fun SupportedSourcesSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE6050811))
+            .background(if (tokens.isDark) Color(0xE6050811) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(16.dp)
             .testTag("supported_sources_sheet"),
@@ -825,17 +828,17 @@ fun SupportedSourcesSheet(
                     Text(
                         text = "Supported Sources & Adapters",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
                 Text(
                     text = "LinkFlow verifies every source adapter before exposing download options.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF94A3B8)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -850,7 +853,7 @@ fun SupportedSourcesSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(18.dp))
-                                .background(Color.White.copy(alpha = 0.06f))
+                                .background(tokens.accentBlue.copy(alpha = 0.06f))
                                 .border(
                                     1.dp,
                                     if (isFull) tokens.successColor.copy(alpha = 0.4f) else tokens.warningColor.copy(alpha = 0.4f),
@@ -867,13 +870,13 @@ fun SupportedSourcesSheet(
                                 Text(
                                     text = adapter.name,
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
                                 Box(
                                     modifier = Modifier
                                         .background(
-                                            color = if (isFull) tokens.successColor.copy(alpha = 0.2f) else tokens.warningColor.copy(alpha = 0.2f),
+                                            color = if (isFull) tokens.successColor.copy(alpha = 0.16f) else tokens.warningColor.copy(alpha = 0.16f),
                                             shape = RoundedCornerShape(8.dp)
                                         )
                                         .padding(horizontal = 8.dp, vertical = 3.dp)
@@ -888,17 +891,17 @@ fun SupportedSourcesSheet(
                             Text(
                                 text = adapter.description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFFCBD5E1)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
                                 text = "Patterns: ${adapter.domainPatterns.joinToString(", ")}",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = tokens.accentCyan
+                                color = tokens.accentBlue
                             )
                             Text(
                                 text = "Policy: ${adapter.limitationNote}",
                                 style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                color = Color(0xFF94A3B8)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -910,10 +913,11 @@ fun SupportedSourcesSheet(
 
 @Composable
 fun PrivacyAndTermsSheet(onClose: () -> Unit) {
+    val tokens = LocalLinkFlowTokens.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE6050811))
+            .background(if (tokens.isDark) Color(0xE6050811) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(16.dp),
         contentAlignment = Alignment.Center
@@ -937,10 +941,10 @@ fun PrivacyAndTermsSheet(onClose: () -> Unit) {
                     Text(
                         text = "Privacy, Security & Terms",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = onClose) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
@@ -948,34 +952,33 @@ fun PrivacyAndTermsSheet(onClose: () -> Unit) {
                     text = "1. Authorized Media & Copyright Compliance\n" +
                         "LinkFlow supports user-owned media, Creative Commons streams, public-domain archives, and authorized direct HTTPS streams. LinkFlow never circumvents DRM, paywalls, or private-account restrictions.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFCBD5E1)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "2. SSRF & Network Security\n" +
                         "All pasted URLs undergo strict syntax, protocol, and SSRF validation. Loopback (127.0.0.1/localhost) and private RFC-1918 network ranges are blocked prior to any socket connection.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFCBD5E1)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "3. On-Device Data Privacy\n" +
                         "Your download queue, recent link analyses, and preferences are stored locally on your device using Room and Jetpack DataStore. Clipboard contents are read only when you explicitly tap Paste.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFCBD5E1)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
                     text = "4. Software License (MIT License)\n" +
                         "Copyright (c) 2026 LinkFlow Contributors. Released under the MIT Open-Source License. Bundled AndroidX, Jetpack Compose, OkHttp, Room, and Coil libraries are licensed under the Apache License 2.0.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFCBD5E1)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Button(
+                LiquidGlassPrimaryButton(
+                    text = "Understood",
                     onClick = onClose,
-                    shape = RoundedCornerShape(14.dp),
+                    cornerRadius = 14.dp,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Understood", color = Color.White)
-                }
+                )
             }
         }
     }

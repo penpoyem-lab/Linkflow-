@@ -122,7 +122,7 @@ fun SoftwareUpdateModal(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xEB040711))
+            .background(if (tokens.isDark) Color(0xEB040711) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 16.dp, vertical = 14.dp)
@@ -164,21 +164,21 @@ fun SoftwareUpdateModal(
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 26.sp
                             ),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.testTag("software_update_title")
                         )
 
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(tokens.accentBlue.copy(alpha = 0.22f))
-                                .border(1.dp, tokens.accentCyan.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
+                                .background(tokens.accentBlue.copy(alpha = 0.14f))
+                                .border(1.dp, tokens.accentBlue.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
                                 text = release.tagName,
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = tokens.accentCyan
+                                color = tokens.accentBlue
                             )
                         }
                     }
@@ -189,7 +189,7 @@ fun SoftwareUpdateModal(
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         ),
-                        color = Color(0xFF94A3B8),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("software_update_subtitle")
                     )
                 }
@@ -205,7 +205,7 @@ fun SoftwareUpdateModal(
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp
                         ),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Text(
@@ -214,12 +214,12 @@ fun SoftwareUpdateModal(
                             lineHeight = 21.sp,
                             fontSize = 14.sp
                         ),
-                        color = Color(0xFFCBD5E1),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("software_update_summary")
                     )
                 }
 
-                // 3. Branded Liquid-Glass Feature Artwork Banner (Inspired by reference screenshot, customized for LinkFlow)
+                // 3. Branded Liquid-Glass Feature Artwork Banner
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -228,9 +228,9 @@ fun SoftwareUpdateModal(
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
-                                    Color(0xFF0A122C),
-                                    Color(0xFF132352),
-                                    Color(0xFF091534)
+                                    Color(0xFF4C1D95),
+                                    Color(0xFF6D28D9),
+                                    Color(0xFF4338CA)
                                 )
                             )
                         )
@@ -238,9 +238,8 @@ fun SoftwareUpdateModal(
                             width = 1.dp,
                             brush = Brush.linearGradient(
                                 colors = listOf(
-                                    tokens.accentCyan.copy(alpha = 0.55f),
-                                    tokens.accentViolet.copy(alpha = 0.35f),
-                                    Color.White.copy(alpha = 0.12f)
+                                    Color.White.copy(alpha = 0.55f),
+                                    tokens.accentViolet.copy(alpha = 0.45f)
                                 )
                             ),
                             shape = RoundedCornerShape(22.dp)
@@ -251,7 +250,7 @@ fun SoftwareUpdateModal(
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    Color(0xFF38BDF8).copy(alpha = glowPulse * 0.45f),
+                                    Color(0xFFC084FC).copy(alpha = glowPulse * 0.45f),
                                     Color.Transparent
                                 ),
                                 center = Offset(size.width * 0.5f, size.height * 0.5f),
@@ -285,13 +284,13 @@ fun SoftwareUpdateModal(
                                 Icon(
                                     imageVector = Icons.Default.Verified,
                                     contentDescription = null,
-                                    tint = tokens.accentCyan,
+                                    tint = Color(0xFFE9D5FF),
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Text(
                                     text = "Liquid-Glass OTA Release • ${FormatUtils.formatBytes(release.apkAsset.sizeBytes)}",
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = Color(0xFFBAE6FD)
+                                    color = Color(0xFFF3E8FF)
                                 )
                             }
                         }
@@ -309,15 +308,15 @@ fun SoftwareUpdateModal(
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp
                         ),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color.White.copy(alpha = 0.04f))
-                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+                            .background(tokens.accentBlue.copy(alpha = 0.06f))
+                            .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(18.dp))
                             .padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -334,7 +333,7 @@ fun SoftwareUpdateModal(
                                         .padding(top = 6.dp)
                                         .size(7.dp)
                                         .clip(CircleShape)
-                                        .background(tokens.accentCyan)
+                                        .background(tokens.accentBlue)
                                 )
                                 Text(
                                     text = feature,
@@ -342,7 +341,7 @@ fun SoftwareUpdateModal(
                                         fontSize = 13.5.sp,
                                         lineHeight = 19.sp
                                     ),
-                                    color = Color(0xFFE2E8F0),
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -355,7 +354,7 @@ fun SoftwareUpdateModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color.White.copy(alpha = 0.03f))
+                        .background(tokens.accentBlue.copy(alpha = 0.05f))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -373,13 +372,13 @@ fun SoftwareUpdateModal(
                         Text(
                             text = "Installed: v${otaState.installedVersionName} → New: v${release.cleanVersionName}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF94A3B8)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(
                         text = release.apkAsset.name,
                         style = MaterialTheme.typography.labelSmall,
-                        color = tokens.accentCyan
+                        color = tokens.accentBlue
                     )
                 }
 
@@ -394,11 +393,11 @@ fun SoftwareUpdateModal(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color.White.copy(alpha = 0.06f))
+                            .background(tokens.accentBlue.copy(alpha = 0.08f))
                             .border(
                                 1.dp,
                                 if (otaState.phase == OtaInstallPhase.ERROR) tokens.errorColor.copy(alpha = 0.5f)
-                                else tokens.accentCyan.copy(alpha = 0.4f),
+                                else tokens.accentBlue.copy(alpha = 0.4f),
                                 RoundedCornerShape(18.dp)
                             )
                             .padding(14.dp),
@@ -425,13 +424,13 @@ fun SoftwareUpdateModal(
                                         Text(
                                             text = otaState.statusMessage ?: "Downloading update…",
                                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                            color = Color.White
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     Text(
                                         text = "${otaState.progressPercent}%",
                                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = tokens.accentCyan
+                                        color = tokens.accentBlue
                                     )
                                 }
 
@@ -441,8 +440,8 @@ fun SoftwareUpdateModal(
                                         .fillMaxWidth()
                                         .height(8.dp)
                                         .clip(RoundedCornerShape(4.dp)),
-                                    color = tokens.accentCyan,
-                                    trackColor = Color.White.copy(alpha = 0.12f)
+                                    color = tokens.accentBlue,
+                                    trackColor = tokens.accentBlue.copy(alpha = 0.14f)
                                 )
 
                                 Row(
@@ -452,7 +451,7 @@ fun SoftwareUpdateModal(
                                     Text(
                                         text = "${FormatUtils.formatBytes(otaState.downloadedBytes)} / ${FormatUtils.formatBytes(otaState.totalBytes)}",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF94A3B8)
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = "SHA-256 & Signature Guard Active",
@@ -476,7 +475,7 @@ fun SoftwareUpdateModal(
                                     Text(
                                         text = "Android requires permission to install updates from this app. Tap 'Allow & Install' below to open system settings.",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                             }
@@ -495,7 +494,7 @@ fun SoftwareUpdateModal(
                                     Text(
                                         text = otaState.errorMessage ?: "Update failed.",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFFFCA5A5)
+                                        color = tokens.errorColor
                                     )
                                 }
                             }
@@ -534,16 +533,16 @@ fun SoftwareUpdateModal(
                                 } else {
                                     Brush.horizontalGradient(
                                         colors = listOf(
-                                            Color(0xFF2563EB),
-                                            Color(0xFF3B82F6),
-                                            Color(0xFF06B6D4)
+                                            Color(0xFFA855F7),
+                                            tokens.accentBlue,
+                                            Color(0xFF6366F1)
                                         )
                                     )
                                 }
                             )
                             .border(
                                 width = 1.dp,
-                                color = Color.White.copy(alpha = 0.28f),
+                                color = Color.White.copy(alpha = 0.35f),
                                 shape = RoundedCornerShape(16.dp)
                             )
                             .springBounceClickable(
@@ -602,7 +601,7 @@ fun SoftwareUpdateModal(
                                     fontWeight = FontWeight.SemiBold,
                                     fontSize = 15.sp
                                 ),
-                                color = Color(0xFF94A3B8)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }

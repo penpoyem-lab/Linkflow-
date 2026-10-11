@@ -1,11 +1,13 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
@@ -34,25 +37,31 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VideoFile
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -60,6 +69,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -75,6 +85,13 @@ import com.example.ui.components.StaggeredAnimatedEntrance
 import com.example.ui.components.springBounceClickable
 import com.example.ui.theme.LocalLinkFlowTokens
 import com.example.util.FormatUtils
+
+private enum class DownloadsFilterSegment(val label: String) {
+    ALL("All"),
+    ACTIVE("Active"),
+    COMPLETE("Complete"),
+    FAILED("Failed")
+}
 
 @Composable
 fun DownloadsQueueScreen(
@@ -98,8 +115,10 @@ fun DownloadsQueueScreen(
     onExploreHome: () -> Unit
 ) {
     val tokens = LocalLinkFlowTokens.current
+    var selectedSegment by remember { mutableStateOf(DownloadsFilterSegment.ALL) }
+    var deleteConfirmTask by remember { mutableStateOf<DownloadTaskEntity?>(null) }
 
-    val filtered = if (searchQuery.isBlank()) {
+    val searchFiltered = if (searchQuery.isBlank()) {
         allDownloads
     } else {
         val q = searchQuery.trim().lowercase()
@@ -111,19 +130,30 @@ fun DownloadsQueueScreen(
         }
     }
 
-    val inProgressList = filtered.filter {
-        it.state in listOf(
-            DownloadJobState.ANALYZING.name,
-            DownloadJobState.PREPARING.name,
-            DownloadJobState.DOWNLOADING.name,
-            DownloadJobState.PROCESSING.name,
-            DownloadJobState.PAUSED.name
-        )
-    }
-    val queuedList = filtered.filter { it.state == DownloadJobState.QUEUED.name }
-    val completedList = filtered.filter { it.state == DownloadJobState.COMPLETED.name }
-    val failedOrCancelledList = filtered.filter {
+    val activeStates = setOf(
+        DownloadJobState.QUEUED.name,
+        DownloadJobState.ANALYZING.name,
+        DownloadJobState.PREPARING.name,
+        DownloadJobState.DOWNLOADING.name,
+        DownloadJobState.PROCESSING.name,
+        DownloadJobState.PAUSED.name
+    )
+
+    val activeCount = allDownloads.count { it.state in activeStates }
+    val completedCount = allDownloads.count { it.state == DownloadJobState.COMPLETED.name }
+    val failedCount = allDownloads.count {
         it.state == DownloadJobState.FAILED.name || it.state == DownloadJobState.CANCELLED.name
+    }
+
+    val segmentFiltered = remember(searchFiltered, selectedSegment) {
+        when (selectedSegment) {
+            DownloadsFilterSegment.ALL -> searchFiltered
+            DownloadsFilterSegment.ACTIVE -> searchFiltered.filter { it.state in activeStates }
+            DownloadsFilterSegment.COMPLETE -> searchFiltered.filter { it.state == DownloadJobState.COMPLETED.name }
+            DownloadsFilterSegment.FAILED -> searchFiltered.filter {
+                it.state == DownloadJobState.FAILED.name || it.state == DownloadJobState.CANCELLED.name
+            }
+        }
     }
 
     PlayStorePullToRefreshBox(
@@ -137,124 +167,147 @@ fun DownloadsQueueScreen(
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .testTag("downloads_lazy_column"),
             contentPadding = PaddingValues(
-                start = 16.dp,
-                end = 16.dp,
+                start = 18.dp,
+                end = 18.dp,
                 top = 14.dp,
                 bottom = 116.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // 1. Header matching reference screenshot: Left circular back button, centered "Downloads" title, right circular notification bell button
             item {
                 StaggeredAnimatedEntrance(index = 0, reducedMotion = reducedMotion) {
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "Downloads & Queue",
-                                style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Text(
-                                text = "${inProgressList.size} active • ${completedList.size} completed • ${failedOrCancelledList.size} failed",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (failedOrCancelledList.isNotEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(tokens.errorColor.copy(alpha = 0.16f))
-                                        .springBounceClickable { onClearFailed() }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .testTag("clear_failed_button")
-                                ) {
-                                    Text(
-                                        text = "Clear Failed",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = tokens.errorColor
-                                    )
-                                }
-                            }
-                            if (completedList.isNotEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(tokens.glassSurfaceElevated)
-                                        .springBounceClickable { onClearCompleted() }
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                                        .testTag("clear_completed_button")
-                                ) {
-                                    Text(
-                                        text = "Clear Done",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = tokens.accentCyan
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                StaggeredAnimatedEntrance(index = 1, reducedMotion = reducedMotion) {
-                    LiquidGlassCard(
-                        cornerRadius = 22.dp,
-                        modifier = Modifier.fillMaxWidth()
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search queue",
-                                tint = tokens.accentCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "Search downloads by name, format, or host…",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .shadow(
+                                        elevation = 6.dp,
+                                        shape = CircleShape,
+                                        ambientColor = Color.Black.copy(alpha = 0.08f),
+                                        spotColor = tokens.accentViolet.copy(alpha = 0.18f)
                                     )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = onSearchQueryChange,
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    cursorBrush = SolidColor(tokens.accentCyan),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .testTag("downloads_search_input")
+                                    .clip(CircleShape)
+                                    .background(if (tokens.isDark) tokens.glassSurfaceElevated else Color(0xFFF3EFFB))
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (tokens.isDark) tokens.glassBorderSubtle else Color.White,
+                                        shape = CircleShape
+                                    )
+                                    .springBounceClickable { onExploreHome() }
+                                    .testTag("downloads_back_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Back to Home",
+                                    tint = MaterialTheme.colorScheme.onBackground,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { onSearchQueryChange("") },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Clear,
-                                        contentDescription = "Clear search",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(16.dp)
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "Downloads",
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 20.sp
+                                    ),
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                if (allDownloads.isNotEmpty()) {
+                                    Text(
+                                        text = "$activeCount active • $completedCount completed • $failedCount failed",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .shadow(
+                                        elevation = 6.dp,
+                                        shape = CircleShape,
+                                        ambientColor = Color.Black.copy(alpha = 0.08f),
+                                        spotColor = tokens.accentViolet.copy(alpha = 0.18f)
+                                    )
+                                    .clip(CircleShape)
+                                    .background(if (tokens.isDark) tokens.glassSurfaceElevated else Color.White)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (tokens.isDark) tokens.glassBorderSubtle else Color.White,
+                                        shape = CircleShape
+                                    )
+                                    .springBounceClickable {
+                                        if (failedCount > 0) {
+                                            onClearFailed()
+                                        } else if (completedCount > 0) {
+                                            onClearCompleted()
+                                        } else {
+                                            onPullToRefresh()
+                                        }
+                                    }
+                                    .testTag("downloads_bell_action_button"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.Notifications,
+                                    contentDescription = "Refresh or clear finished jobs",
+                                    tint = if (tokens.isDark) Color.White else Color(0xFF1E1B4B),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+
+                        if (failedCount > 0 || completedCount > 0) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (failedCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(tokens.errorColor.copy(alpha = 0.14f))
+                                            .springBounceClickable { onClearFailed() }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .testTag("clear_failed_button")
+                                    ) {
+                                        Text(
+                                            text = "Clear Failed ($failedCount)",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = tokens.errorColor
+                                        )
+                                    }
+                                }
+                                if (completedCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(tokens.accentBlue.copy(alpha = 0.12f))
+                                            .springBounceClickable { onClearCompleted() }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                            .testTag("clear_completed_button")
+                                    ) {
+                                        Text(
+                                            text = "Clear Completed ($completedCount)",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = tokens.accentBlue
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -262,85 +315,186 @@ fun DownloadsQueueScreen(
                 }
             }
 
-            if (filtered.isEmpty()) {
-                item {
-                    StaggeredAnimatedEntrance(index = 2, reducedMotion = reducedMotion) {
-                        LiquidGlassCard(
-                            cornerRadius = 26.dp,
+            // 2. Crisp White Capsule Segmented Filter (matching the reference screenshot: rounded white pill container + solid purple active pill)
+            item {
+                StaggeredAnimatedEntrance(index = 1, reducedMotion = reducedMotion) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 20.dp)
+                                .shadow(
+                                    elevation = 10.dp,
+                                    shape = RoundedCornerShape(30.dp),
+                                    ambientColor = Color(0xFF7C3AED).copy(alpha = 0.12f),
+                                    spotColor = Color(0xFF7C3AED).copy(alpha = 0.18f)
+                                )
+                                .clip(RoundedCornerShape(30.dp))
+                                .background(if (tokens.isDark) tokens.glassSurfaceElevated else Color.White)
+                                .border(
+                                    width = 1.dp,
+                                    color = if (tokens.isDark) tokens.glassBorderSubtle else Color.White,
+                                    shape = RoundedCornerShape(30.dp)
+                                )
+                                .padding(4.dp)
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(28.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.img_empty_downloads_art_1791571250696),
-                                    contentDescription = "Empty download queue illustration",
-                                    contentScale = ContentScale.Crop,
+                                DownloadsFilterSegment.entries.forEach { segment ->
+                                    val isSelected = selectedSegment == segment
+                                    val scale by animateFloatAsState(
+                                        targetValue = if (isSelected) 1.0f else 0.97f,
+                                        animationSpec = spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        ),
+                                        label = "seg_scale_${segment.name}"
+                                    )
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .scale(scale)
+                                            .then(
+                                                if (isSelected) {
+                                                    Modifier
+                                                        .shadow(
+                                                            elevation = 6.dp,
+                                                            shape = RoundedCornerShape(26.dp),
+                                                            ambientColor = Color(0xFF7C3AED).copy(alpha = 0.30f),
+                                                            spotColor = Color(0xFF7C3AED).copy(alpha = 0.35f)
+                                                        )
+                                                        .clip(RoundedCornerShape(26.dp))
+                                                        .background(
+                                                            Brush.horizontalGradient(
+                                                                listOf(
+                                                                    Color(0xFF8B5CF6),
+                                                                    Color(0xFF7C3AED)
+                                                                )
+                                                            )
+                                                        )
+                                                } else {
+                                                    Modifier
+                                                        .clip(RoundedCornerShape(26.dp))
+                                                        .background(Color.Transparent)
+                                                }
+                                            )
+                                            .springBounceClickable(pressedScale = 0.94f) {
+                                                selectedSegment = segment
+                                            }
+                                            .padding(vertical = 11.dp)
+                                            .testTag("downloads_filter_${segment.name.lowercase()}"),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = segment.label,
+                                            style = MaterialTheme.typography.labelLarge.copy(
+                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                                fontSize = 13.5.sp
+                                            ),
+                                            color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Show search bar when there are downloads or an active query
+                        if (allDownloads.isNotEmpty() || searchQuery.isNotEmpty()) {
+                            LiquidGlassCard(
+                                cornerRadius = 22.dp,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(160.dp)
-                                        .clip(RoundedCornerShape(18.dp))
-                                )
-                                Text(
-                                    text = if (searchQuery.isNotBlank()) "No Matching Downloads" else "Your Download Queue is Empty",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = if (searchQuery.isNotBlank()) {
-                                        "Try clearing your search filter to see all tasks."
-                                    } else {
-                                        "Paste a supported media link on the Home screen to start downloading."
-                                    },
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                LiquidGlassPrimaryButton(
-                                    text = "Go to Home Screen",
-                                    icon = Icons.Default.Download,
-                                    onClick = onExploreHome,
-                                    cornerRadius = 18.dp
-                                )
+                                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search queue",
+                                        tint = tokens.accentBlue,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Box(modifier = Modifier.weight(1f)) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Search downloads by filename, format, or source…",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                        BasicTextField(
+                                            value = searchQuery,
+                                            onValueChange = onSearchQueryChange,
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            ),
+                                            cursorBrush = SolidColor(tokens.accentBlue),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .testTag("downloads_search_input")
+                                        )
+                                    }
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { onSearchQueryChange("") },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "Clear search",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            if (inProgressList.isNotEmpty()) {
+            // 3. Empty State or Filtered Download Items (clean open pearl-white layout matching the right reference screenshot)
+            if (segmentFiltered.isEmpty()) {
                 item {
-                    SectionLabel("IN PROGRESS (${inProgressList.size})")
-                }
-                itemsIndexed(inProgressList, key = { _, it -> it.jobId }) { idx, task ->
-                    StaggeredAnimatedEntrance(index = idx + 2, reducedMotion = reducedMotion) {
-                        DownloadQueueItemCard(
-                            task = task,
-                            reducedMotion = reducedMotion,
-                            onOpenLiveModal = { onOpenLiveProgressModal(task.jobId) },
-                            onOpenDetails = { onOpenJobDetails(task.jobId) },
-                            onPause = { onPause(task.jobId) },
-                            onResume = { onResume(task.jobId) },
-                            onCancel = { onCancel(task.jobId) },
-                            onRetry = { onRetry(task.jobId) },
-                            onDelete = { onDelete(task.jobId) },
-                            onPlay = { onPlayFile(task) },
-                            onShare = { onShareFile(task) }
-                        )
+                    StaggeredAnimatedEntrance(index = 2, reducedMotion = reducedMotion) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 120.dp, start = 24.dp, end = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = when {
+                                    searchQuery.isNotBlank() -> "No matching downloads"
+                                    selectedSegment != DownloadsFilterSegment.ALL -> "No ${selectedSegment.label.lowercase()} downloads"
+                                    else -> "No downloads yet"
+                                },
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Medium
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                textAlign = TextAlign.Center
+                            )
+                            Text(
+                                text = "Paste a link on the Home tab to download video or audio.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
-            }
-
-            if (queuedList.isNotEmpty()) {
-                item {
-                    SectionLabel("QUEUED (${queuedList.size})")
-                }
-                itemsIndexed(queuedList, key = { _, it -> it.jobId }) { idx, task ->
+            } else {
+                itemsIndexed(segmentFiltered, key = { _, it -> it.jobId }) { idx, task ->
                     StaggeredAnimatedEntrance(index = idx + 2, reducedMotion = reducedMotion) {
                         DownloadQueueItemCard(
                             task = task,
@@ -351,53 +505,14 @@ fun DownloadsQueueScreen(
                             onResume = { onResume(task.jobId) },
                             onCancel = { onCancel(task.jobId) },
                             onRetry = { onRetry(task.jobId) },
-                            onDelete = { onDelete(task.jobId) },
-                            onPlay = { onPlayFile(task) },
-                            onShare = { onShareFile(task) }
-                        )
-                    }
-                }
-            }
-
-            if (completedList.isNotEmpty()) {
-                item {
-                    SectionLabel("COMPLETED (${completedList.size})")
-                }
-                itemsIndexed(completedList, key = { _, it -> it.jobId }) { idx, task ->
-                    StaggeredAnimatedEntrance(index = idx + 2, reducedMotion = reducedMotion) {
-                        DownloadQueueItemCard(
-                            task = task,
-                            reducedMotion = reducedMotion,
-                            onOpenLiveModal = { onOpenLiveProgressModal(task.jobId) },
-                            onOpenDetails = { onOpenJobDetails(task.jobId) },
-                            onPause = { onPause(task.jobId) },
-                            onResume = { onResume(task.jobId) },
-                            onCancel = { onCancel(task.jobId) },
-                            onRetry = { onRetry(task.jobId) },
-                            onDelete = { onDelete(task.jobId) },
-                            onPlay = { onPlayFile(task) },
-                            onShare = { onShareFile(task) }
-                        )
-                    }
-                }
-            }
-
-            if (failedOrCancelledList.isNotEmpty()) {
-                item {
-                    SectionLabel("FAILED / CANCELLED (${failedOrCancelledList.size})")
-                }
-                itemsIndexed(failedOrCancelledList, key = { _, it -> it.jobId }) { idx, task ->
-                    StaggeredAnimatedEntrance(index = idx + 2, reducedMotion = reducedMotion) {
-                        DownloadQueueItemCard(
-                            task = task,
-                            reducedMotion = reducedMotion,
-                            onOpenLiveModal = { onOpenLiveProgressModal(task.jobId) },
-                            onOpenDetails = { onOpenJobDetails(task.jobId) },
-                            onPause = { onPause(task.jobId) },
-                            onResume = { onResume(task.jobId) },
-                            onCancel = { onCancel(task.jobId) },
-                            onRetry = { onRetry(task.jobId) },
-                            onDelete = { onDelete(task.jobId) },
+                            onDeleteRequest = {
+                                val isDone = task.state == DownloadJobState.COMPLETED.name
+                                if (isDone) {
+                                    deleteConfirmTask = task
+                                } else {
+                                    onDelete(task.jobId)
+                                }
+                            },
                             onPlay = { onPlayFile(task) },
                             onShare = { onShareFile(task) }
                         )
@@ -406,19 +521,32 @@ fun DownloadsQueueScreen(
             }
         }
     }
-}
 
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium.copy(
-            letterSpacing = 1.4.sp,
-            fontWeight = FontWeight.Bold
-        ),
-        color = LocalLinkFlowTokens.current.accentCyan,
-        modifier = Modifier.padding(horizontal = 4.dp)
-    )
+    // Confirmation dialog before deleting completed files
+    deleteConfirmTask?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmTask = null },
+            title = { Text("Delete Completed File?") },
+            text = {
+                Text("Remove \"${target.fileName}\" from your downloads and device storage?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete(target.jobId)
+                        deleteConfirmTask = null
+                    }
+                ) {
+                    Text("Delete", color = tokens.errorColor, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmTask = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -431,7 +559,7 @@ private fun DownloadQueueItemCard(
     onResume: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
-    onDelete: () -> Unit,
+    onDeleteRequest: () -> Unit,
     onPlay: () -> Unit,
     onShare: () -> Unit
 ) {
@@ -474,12 +602,16 @@ private fun DownloadQueueItemCard(
                 Box(
                     modifier = Modifier
                         .size(width = 64.dp, height = 56.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(14.dp))
                         .background(
                             Brush.linearGradient(
-                                listOf(tokens.accentBlue.copy(alpha = 0.35f), tokens.accentViolet.copy(alpha = 0.35f))
+                                listOf(
+                                    tokens.accentBlue.copy(alpha = 0.22f),
+                                    tokens.accentViolet.copy(alpha = 0.22f)
+                                )
                             )
-                        ),
+                        )
+                        .border(0.8.dp, tokens.glassBorderSubtle, RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     if (isActiveTransfer) {
@@ -493,14 +625,14 @@ private fun DownloadQueueItemCard(
                         coil.compose.AsyncImage(
                             model = task.thumbnailUrl,
                             contentDescription = task.title,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
                         Icon(
                             imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
                             contentDescription = task.title,
-                            tint = Color.White,
+                            tint = tokens.accentBlue,
                             modifier = Modifier.size(26.dp)
                         )
                     }
@@ -515,9 +647,9 @@ private fun DownloadQueueItemCard(
                             modifier = Modifier
                                 .background(
                                     color = when {
-                                        isCompleted -> tokens.successColor.copy(alpha = 0.2f)
-                                        isFailedOrCancelled -> tokens.errorColor.copy(alpha = 0.2f)
-                                        else -> tokens.accentBlue.copy(alpha = 0.25f)
+                                        isCompleted -> tokens.successColor.copy(alpha = 0.14f)
+                                        isFailedOrCancelled -> tokens.errorColor.copy(alpha = 0.14f)
+                                        else -> tokens.accentBlue.copy(alpha = 0.14f)
                                     },
                                     shape = RoundedCornerShape(6.dp)
                                 )
@@ -525,11 +657,14 @@ private fun DownloadQueueItemCard(
                         ) {
                             Text(
                                 text = "${task.format} • ${task.qualityLabel}",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
                                 color = when {
                                     isCompleted -> tokens.successColor
                                     isFailedOrCancelled -> tokens.errorColor
-                                    else -> tokens.accentCyan
+                                    else -> tokens.accentBlue
                                 }
                             )
                         }
@@ -540,10 +675,10 @@ private fun DownloadQueueItemCard(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
 
                     Text(
-                        text = task.title,
+                        text = task.fileName.ifBlank { task.title },
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -554,33 +689,43 @@ private fun DownloadQueueItemCard(
                         isFailedOrCancelled -> "${task.providerName} • Tap Retry to re-resolve fresh stream"
                         task.totalBytes > 0L -> "${FormatUtils.formatBytes(task.downloadedBytes)} / ${FormatUtils.formatBytes(task.totalBytes)} • ${task.providerName}"
                         task.downloadedBytes > 0L -> "${FormatUtils.formatBytes(task.downloadedBytes)} streamed • ${task.providerName}"
-                        else -> "${ stateEnum.displayName } • ${task.providerName}"
+                        else -> "${stateEnum.displayName} • ${task.providerName}"
                     }
 
                     Text(
                         text = transferSummaryText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                IconButton(
-                    onClick = onOpenDetails,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = "Task details",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                if (!isCompleted && !isFailedOrCancelled) {
+                    Text(
+                        text = "${task.progressPercent}%",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = tokens.accentBlue
                     )
+                } else {
+                    IconButton(
+                        onClick = onOpenDetails,
+                        modifier = Modifier.size(34.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Task details",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
             if (!isCompleted && !isFailedOrCancelled) {
                 LinearProgressIndicator(
                     progress = { animatedProgress },
-                    color = tokens.accentCyan,
-                    trackColor = Color.White.copy(alpha = 0.12f),
+                    color = tokens.accentBlue,
+                    trackColor = tokens.accentBlue.copy(alpha = 0.14f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
@@ -595,12 +740,12 @@ private fun DownloadQueueItemCard(
             ) {
                 Text(
                     text = when {
-                        isCompleted -> "Saved: ${task.fileName}"
+                        isCompleted -> "Complete • ${FormatUtils.formatBytes(task.totalBytes.coerceAtLeast(task.downloadedBytes))}"
                         isFailedOrCancelled -> task.errorMessage ?: "Interrupted"
                         else -> "${task.progressPercent}% • ${FormatUtils.formatSpeed(task.speedBytesPerSec)}"
                     },
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isCompleted) tokens.successColor else if (isFailedOrCancelled) tokens.errorColor else MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
@@ -612,17 +757,17 @@ private fun DownloadQueueItemCard(
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Play file",
-                                tint = tokens.accentCyan
+                                tint = tokens.accentBlue
                             )
                         }
                         IconButton(onClick = onShare, modifier = Modifier.size(34.dp)) {
                             Icon(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "Share file",
-                                tint = tokens.accentBlue
+                                tint = tokens.accentViolet
                             )
                         }
-                        IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = onDeleteRequest, modifier = Modifier.size(34.dp)) {
                             Icon(
                                 imageVector = Icons.Default.DeleteOutline,
                                 contentDescription = "Delete file",
@@ -634,10 +779,10 @@ private fun DownloadQueueItemCard(
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Retry download",
-                                tint = tokens.accentCyan
+                                tint = tokens.accentBlue
                             )
                         }
-                        IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                        IconButton(onClick = onDeleteRequest, modifier = Modifier.size(34.dp)) {
                             Icon(
                                 imageVector = Icons.Default.DeleteOutline,
                                 contentDescription = "Remove task",
@@ -652,7 +797,7 @@ private fun DownloadQueueItemCard(
                             Icon(
                                 imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                                 contentDescription = if (isPaused) "Resume" else "Pause",
-                                tint = tokens.accentCyan
+                                tint = tokens.accentBlue
                             )
                         }
                         IconButton(onClick = onCancel, modifier = Modifier.size(34.dp)) {
@@ -682,7 +827,7 @@ fun DownloadJobDetailsSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE6050811))
+            .background(if (tokens.isDark) Color(0xE6070612) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .padding(16.dp)
             .testTag("download_details_sheet"),
@@ -707,23 +852,23 @@ fun DownloadJobDetailsSheet(
                     Text(
                         text = "Download Job Details",
                         style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     IconButton(onClick = onClose) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close details",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
 
-                HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
+                HorizontalDivider(color = tokens.glassBorderSubtle)
 
                 DetailRow("Job ID", task.jobId)
                 DetailRow("Title", task.title)
                 DetailRow("File Name", task.fileName)
-                DetailRow("State Machine", task.state)
+                DetailRow("State", task.state)
                 DetailRow("Format & Quality", "${task.format} • ${task.qualityLabel}")
                 DetailRow("Resolution / Bitrate", task.resolutionOrBitrate)
                 DetailRow("Codec", task.codec)
@@ -765,7 +910,7 @@ fun DownloadJobDetailsSheet(
                         )
                     } else {
                         LiquidGlassPrimaryButton(
-                            text = "Open Live Progress Ring",
+                            text = "Open Live Progress",
                             onClick = onOpenLiveProgress,
                             cornerRadius = 16.dp,
                             modifier = Modifier.weight(1f)
@@ -793,13 +938,13 @@ private fun DetailRow(label: String, value: String) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF94A3B8),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.width(128.dp)
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)

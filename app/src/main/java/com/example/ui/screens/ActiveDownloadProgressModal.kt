@@ -140,7 +140,10 @@ fun ActiveDownloadProgressModal(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF2060A15))
+            .background(
+                if (tokens.isDark) Color(0xF2080716)
+                else Color(0xF5F6F5FC)
+            )
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -156,7 +159,7 @@ fun ActiveDownloadProgressModal(
                 val py = h * p.yFraction + (sin(rad * p.speedFactor) * 16f).toFloat()
                 rotate(degrees = p.baseAngle + phaseAngle * 0.4f, pivot = Offset(px, py)) {
                     drawRect(
-                        color = p.color.copy(alpha = if (isCompleted) 0.9f else 0.72f),
+                        color = p.color.copy(alpha = if (isCompleted) 0.85f else 0.55f),
                         topLeft = Offset(px, py),
                         size = Size(p.widthDp.dp.toPx(), p.heightDp.dp.toPx())
                     )
@@ -186,9 +189,9 @@ fun ActiveDownloadProgressModal(
                     text = headerText,
                     style = MaterialTheme.typography.headlineLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 30.sp
+                        fontSize = 28.sp
                     ),
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center
                 )
 
@@ -203,7 +206,7 @@ fun ActiveDownloadProgressModal(
                 Text(
                     text = sizeSubtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFCBD5E1),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -224,9 +227,9 @@ fun ActiveDownloadProgressModal(
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                if (isCompleted) tokens.successColor.copy(alpha = 0.28f)
-                                else if (isFailedOrCancelled) tokens.errorColor.copy(alpha = 0.25f)
-                                else tokens.accentCyan.copy(alpha = 0.26f),
+                                if (isCompleted) tokens.successColor.copy(alpha = 0.22f)
+                                else if (isFailedOrCancelled) tokens.errorColor.copy(alpha = 0.20f)
+                                else tokens.accentBlue.copy(alpha = 0.20f),
                                 Color.Transparent
                             ),
                             center = center,
@@ -237,32 +240,32 @@ fun ActiveDownloadProgressModal(
                     )
 
                     drawCircle(
-                        color = Color(0x4D38BDF8),
+                        color = tokens.accentBlue.copy(alpha = 0.16f),
                         radius = radius,
                         center = center,
                         style = Stroke(width = strokePx)
                     )
                     drawCircle(
-                        color = Color.White.copy(alpha = 0.35f),
+                        color = tokens.glassBorderSubtle,
                         radius = radius + strokePx * 0.48f,
                         center = center,
-                        style = Stroke(width = 2.dp.toPx())
+                        style = Stroke(width = 1.5.dp.toPx())
                     )
 
                     val sweepAngle = 360f * animatedFraction
                     val arcBrush = when {
                         isCompleted -> Brush.sweepGradient(
-                            listOf(Color(0xFF10B981), Color(0xFF34D399), Color(0xFF22D3EE), Color(0xFF10B981))
+                            listOf(Color(0xFF10B981), Color(0xFF34D399), Color(0xFFA855F7), Color(0xFF10B981))
                         )
                         isFailedOrCancelled -> Brush.sweepGradient(
                             listOf(Color(0xFFEF4444), Color(0xFFF97316), Color(0xFFEF4444))
                         )
                         else -> Brush.sweepGradient(
                             listOf(
-                                Color(0xFF22D3EE),
-                                Color(0xFF38BDF8),
-                                Color(0xFF818CF8),
-                                Color(0xFF22D3EE)
+                                Color(0xFFA855F7),
+                                Color(0xFF7C3AED),
+                                Color(0xFF6366F1),
+                                Color(0xFFA855F7)
                             )
                         )
                     }
@@ -284,7 +287,7 @@ fun ActiveDownloadProgressModal(
                         val dx = center.x + (radius + strokePx * 0.55f) * cos(rRad).toFloat()
                         val dy = center.y + (radius + strokePx * 0.55f) * sin(rRad).toFloat()
                         drawCircle(
-                            color = Color(0xAA7DD3FC),
+                            color = tokens.accentViolet.copy(alpha = 0.55f),
                             radius = (5 + idx * 1.5f).dp.toPx(),
                             center = Offset(dx, dy)
                         )
@@ -297,7 +300,7 @@ fun ActiveDownloadProgressModal(
                             modifier = Modifier
                                 .size(64.dp)
                                 .clip(CircleShape)
-                                .background(tokens.successColor.copy(alpha = 0.22f))
+                                .background(tokens.successColor.copy(alpha = 0.16f))
                                 .border(2.dp, tokens.successColor, CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
@@ -330,10 +333,10 @@ fun ActiveDownloadProgressModal(
                     Text(
                         text = "${task.progressPercent}%",
                         style = MaterialTheme.typography.displayLarge.copy(
-                            fontSize = 56.sp,
+                            fontSize = 54.sp,
                             fontWeight = FontWeight.Bold
                         ),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.testTag("modal_progress_percentage")
                     )
 
@@ -350,7 +353,7 @@ fun ActiveDownloadProgressModal(
                     Text(
                         text = statusSubtitle,
                         style = MaterialTheme.typography.titleMedium,
-                        color = Color(0xFF93C5FD),
+                        color = tokens.accentBlue,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 16.dp)
                     )
@@ -360,13 +363,13 @@ fun ActiveDownloadProgressModal(
                         Text(
                             text = "${FormatUtils.formatSpeed(task.speedBytesPerSec)} • ${FormatUtils.formatEta(task.etaSeconds)}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFFCBD5E1)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
 
-            // Frosted Liquid-Glass Media Card (using real format icon badge instead of demo image)
+            // Frosted Liquid-Glass Media Card
             LiquidGlassCard(
                 cornerRadius = 26.dp,
                 isHighlighted = true,
@@ -382,11 +385,11 @@ fun ActiveDownloadProgressModal(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(width = 96.dp, height = 74.dp)
+                            .size(width = 92.dp, height = 70.dp)
                             .clip(RoundedCornerShape(16.dp))
                             .background(
                                 Brush.linearGradient(
-                                    listOf(tokens.accentBlue.copy(alpha = 0.4f), tokens.accentViolet.copy(alpha = 0.4f))
+                                    listOf(tokens.accentBlue.copy(alpha = 0.22f), tokens.accentViolet.copy(alpha = 0.22f))
                                 )
                             ),
                         contentAlignment = Alignment.Center
@@ -402,8 +405,8 @@ fun ActiveDownloadProgressModal(
                             Icon(
                                 imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
                                 contentDescription = task.title,
-                                tint = Color.White,
-                                modifier = Modifier.size(34.dp)
+                                tint = tokens.accentBlue,
+                                modifier = Modifier.size(32.dp)
                             )
                         }
                     }
@@ -417,14 +420,14 @@ fun ActiveDownloadProgressModal(
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Bold
                             ),
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = "${task.qualityLabel} • ${task.resolutionOrBitrate} • ${task.providerName}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFCBD5E1),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -508,7 +511,7 @@ fun ActiveDownloadProgressModal(
                         GlassCapsuleActionButton(
                             label = "Background",
                             icon = androidx.compose.material.icons.Icons.AutoMirrored.Filled.OpenInNew,
-                            borderTint = Color(0xFF38BDF8),
+                            borderTint = tokens.accentBlue,
                             onClick = onRunInBackground,
                             modifier = Modifier
                                 .weight(1f)
@@ -519,7 +522,8 @@ fun ActiveDownloadProgressModal(
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
-                            .background(Color.White.copy(alpha = 0.08f))
+                            .background(tokens.accentBlue.copy(alpha = 0.10f))
+                            .border(1.dp, tokens.accentBlue.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                             .clickable {
                                 if (isPaused) onResume() else onPause()
                             }
@@ -531,13 +535,13 @@ fun ActiveDownloadProgressModal(
                         Icon(
                             imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                             contentDescription = null,
-                            tint = Color(0xFF93C5FD),
+                            tint = tokens.accentBlue,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = if (isPaused) "Resume Transfer" else "Pause Transfer",
                             style = MaterialTheme.typography.labelMedium,
-                            color = Color(0xFF93C5FD)
+                            color = tokens.accentBlue
                         )
                     }
                 }
@@ -546,8 +550,8 @@ fun ActiveDownloadProgressModal(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(24.dp))
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(24.dp))
+                        .background(tokens.glassSurface)
+                        .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(24.dp))
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
@@ -555,14 +559,14 @@ fun ActiveDownloadProgressModal(
                     Icon(
                         imageVector = Icons.Default.Waves,
                         contentDescription = null,
-                        tint = Color(0xFF93C5FD),
+                        tint = tokens.accentBlue,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Runs in background • You can switch tabs and it will continue",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                        color = Color(0xFFE2E8F0),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -580,28 +584,29 @@ private fun GlassCapsuleActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val tokens = LocalLinkFlowTokens.current
     Box(
         modifier = modifier
-            .height(58.dp)
-            .clip(RoundedCornerShape(30.dp))
+            .height(54.dp)
+            .clip(RoundedCornerShape(28.dp))
             .background(
                 brush = Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.16f),
-                        borderTint.copy(alpha = 0.18f)
+                        tokens.glassSurfaceElevated,
+                        borderTint.copy(alpha = 0.14f)
                     )
                 )
             )
             .border(
-                width = 1.5.dp,
+                width = 1.2.dp,
                 brush = Brush.horizontalGradient(
                     listOf(
-                        borderTint.copy(alpha = 0.85f),
-                        Color.White.copy(alpha = 0.45f),
-                        borderTint.copy(alpha = 0.65f)
+                        borderTint.copy(alpha = 0.65f),
+                        tokens.glassBorderSubtle,
+                        borderTint.copy(alpha = 0.45f)
                     )
                 ),
-                shape = RoundedCornerShape(30.dp)
+                shape = RoundedCornerShape(28.dp)
             )
             .springBounceClickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -613,7 +618,7 @@ private fun GlassCapsuleActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White,
+                tint = borderTint,
                 modifier = Modifier.size(20.dp)
             )
             Text(
@@ -621,7 +626,7 @@ private fun GlassCapsuleActionButton(
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontWeight = FontWeight.Bold
                 ),
-                color = Color.White
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }

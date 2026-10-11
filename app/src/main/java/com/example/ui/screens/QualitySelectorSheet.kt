@@ -89,7 +89,7 @@ fun QualitySelectorSheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xE6050811))
+            .background(if (tokens.isDark) Color(0xE6050811) else Color(0xB31E1B2E))
             .windowInsetsPadding(WindowInsets.statusBars)
             .windowInsetsPadding(WindowInsets.navigationBars)
             .padding(horizontal = 12.dp, vertical = 10.dp)
@@ -103,7 +103,7 @@ fun QualitySelectorSheet(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Top Handle Pill & Close Button matching Image 3
+                // Top Handle Pill & Close Button
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -113,9 +113,9 @@ fun QualitySelectorSheet(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .width(68.dp)
-                            .height(14.dp)
+                            .height(10.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(Color.White.copy(alpha = 0.22f))
+                            .background(tokens.glassBorderSubtle)
                     )
 
                     IconButton(
@@ -124,13 +124,13 @@ fun QualitySelectorSheet(
                             .align(Alignment.TopEnd)
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.14f))
+                            .background(tokens.accentBlue.copy(alpha = 0.12f))
                             .testTag("close_quality_sheet_button")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close quality selector",
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -149,8 +149,8 @@ fun QualitySelectorSheet(
                             modifier = Modifier
                                 .size(width = 76.dp, height = 56.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.08f))
-                                .border(1.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(14.dp))
+                                .background(tokens.accentBlue.copy(alpha = 0.12f))
+                                .border(1.dp, tokens.glassBorderSubtle, RoundedCornerShape(14.dp))
                         ) {
                             coil.compose.AsyncImage(
                                 model = analysis.thumbnailUrl,
@@ -163,18 +163,18 @@ fun QualitySelectorSheet(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Video Quality",
+                            text = "Select Quality",
                             style = MaterialTheme.typography.headlineLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 28.sp
+                                fontSize = 26.sp
                             ),
-                            color = Color.White
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "${analysis.providerName} • ${analysis.title}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -182,9 +182,9 @@ fun QualitySelectorSheet(
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                HorizontalDivider(color = tokens.glassBorderSubtle)
 
-                // Scrollable list of VIDEO and AUDIO ONLY (MP3) options matching Image 3
+                // Scrollable list of VIDEO and AUDIO ONLY (MP3) options
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
@@ -198,8 +198,8 @@ fun QualitySelectorSheet(
                                     .fillMaxWidth()
                                     .padding(horizontal = 22.dp, vertical = 16.dp)
                                     .clip(RoundedCornerShape(22.dp))
-                                    .background(Color(0x331E294B))
-                                    .border(1.dp, tokens.accentCyan.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
+                                    .background(tokens.accentBlue.copy(alpha = 0.10f))
+                                    .border(1.dp, tokens.accentBlue.copy(alpha = 0.35f), RoundedCornerShape(22.dp))
                                     .padding(18.dp)
                                     .testTag("sheet_provider_limitation_card"),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -207,18 +207,18 @@ fun QualitySelectorSheet(
                                 Text(
                                     text = "Official ${analysis.providerName} Metadata Preview",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                     text = "Channel: ${analysis.authorOrChannel} • Duration: ${analysis.durationFormatted}",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = tokens.accentCyan
+                                    color = tokens.accentBlue
                                 )
                                 Text(
                                     text = analysis.authorizationLimitationNotice
                                         ?: "Direct file downloads are not authorized by the official ${analysis.providerName} API for this video.",
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFCBD5E1)
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -232,7 +232,7 @@ fun QualitySelectorSheet(
                                     letterSpacing = 1.6.sp,
                                     fontWeight = FontWeight.SemiBold
                                 ),
-                                color = Color(0xFF94A3B8),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -247,7 +247,7 @@ fun QualitySelectorSheet(
                                 onSelect = { onSelectOption(option) }
                             )
                             HorizontalDivider(
-                                color = Color.White.copy(alpha = 0.06f),
+                                color = tokens.glassBorderSubtle,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -262,7 +262,7 @@ fun QualitySelectorSheet(
                                     letterSpacing = 1.6.sp,
                                     fontWeight = FontWeight.SemiBold
                                 ),
-                                color = Color(0xFF94A3B8),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -277,7 +277,7 @@ fun QualitySelectorSheet(
                                     .fillMaxWidth()
                                     .padding(horizontal = 20.dp, vertical = 6.dp)
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(Color(0x331E294B))
+                                    .background(tokens.accentBlue.copy(alpha = 0.08f))
                                     .border(
                                         1.dp,
                                         tokens.accentViolet.copy(alpha = 0.35f),
@@ -295,7 +295,7 @@ fun QualitySelectorSheet(
                                         .clip(CircleShape)
                                         .background(
                                             Brush.linearGradient(
-                                                listOf(Color(0xFFEC4899), Color(0xFF8B5CF6))
+                                                listOf(Color(0xFFA855F7), tokens.accentBlue)
                                             )
                                         ),
                                     contentAlignment = Alignment.Center
@@ -316,7 +316,7 @@ fun QualitySelectorSheet(
                                             "Tap to Preview Audio Spectrum"
                                         },
                                         style = MaterialTheme.typography.labelMedium,
-                                        color = Color.White
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                     AnimatedAudioWaveform(
                                         isPlaying = isAudioPreviewPlaying,
@@ -334,7 +334,7 @@ fun QualitySelectorSheet(
                                 onSelect = { onSelectOption(option) }
                             )
                             HorizontalDivider(
-                                color = Color.White.copy(alpha = 0.06f),
+                                color = tokens.glassBorderSubtle,
                                 modifier = Modifier.padding(horizontal = 20.dp)
                             )
                         }
@@ -345,7 +345,7 @@ fun QualitySelectorSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0x4D0B1021))
+                        .background(tokens.accentBlue.copy(alpha = 0.06f))
                         .padding(horizontal = 20.dp, vertical = 14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -385,7 +385,7 @@ fun QualitySelectorSheet(
                             "Official Provider Metadata • Opens in ${analysis.providerName}"
                         },
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = Color(0xFF94A3B8)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -399,19 +399,19 @@ private fun QualityOptionRow(
     isSelected: Boolean,
     onSelect: () -> Unit
 ) {
+    val tokens = LocalLinkFlowTokens.current
     val scale by animateFloatAsState(
         targetValue = if (isSelected) 1.01f else 1.0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "row_scale"
     )
     val rowBg by animateColorAsState(
-        targetValue = if (isSelected) Color(0x4D1E3A8A) else Color.Transparent,
+        targetValue = if (isSelected) tokens.accentBlue.copy(alpha = 0.14f) else Color.Transparent,
         label = "row_bg"
     )
 
     val is4K = option.badge == "4K" || option.badge == "2K"
     val isHD = option.badge == "HD" || option.badge == "1080p HD"
-    val isRecommended = option.badge == "Recommended"
     val isAudio = !option.format.isVideo
 
     Row(
@@ -425,7 +425,6 @@ private fun QualityOptionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Left circular icon badge matching Image 3
         Box(
             modifier = Modifier
                 .size(44.dp)
@@ -433,7 +432,7 @@ private fun QualityOptionRow(
                 .background(
                     brush = when {
                         isSelected -> Brush.linearGradient(
-                            listOf(Color(0xFF3B82F6), Color(0xFF2563EB))
+                            listOf(Color(0xFFA855F7), tokens.accentBlue)
                         )
                         isAudio -> Brush.linearGradient(
                             listOf(Color(0xFFEC4899), Color(0xFF8B5CF6))
@@ -442,7 +441,7 @@ private fun QualityOptionRow(
                             listOf(Color(0xFFF59E0B), Color(0xFF7C3AED))
                         )
                         else -> Brush.linearGradient(
-                            listOf(Color(0xFF334155), Color(0xFF1E293B))
+                            listOf(tokens.accentBlue.copy(alpha = 0.18f), tokens.accentViolet.copy(alpha = 0.18f))
                         )
                     }
                 ),
@@ -485,7 +484,7 @@ private fun QualityOptionRow(
                     Icon(
                         imageVector = Icons.Default.Hd,
                         contentDescription = null,
-                        tint = Color(0xFF93C5FD),
+                        tint = tokens.accentBlue,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -493,14 +492,13 @@ private fun QualityOptionRow(
                     Icon(
                         imageVector = Icons.Default.Download,
                         contentDescription = null,
-                        tint = Color(0xFF93C5FD),
+                        tint = tokens.accentBlue,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
 
-        // Center Title + Badge + SubLabel matching Image 3
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -512,15 +510,15 @@ private fun QualityOptionRow(
                         fontWeight = FontWeight.Bold,
                         fontSize = 17.sp
                     ),
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 if (option.badge != null) {
                     val badgeBg = when (option.badge) {
                         "4K" -> Color(0xFFD97706)
-                        "HD" -> Color(0xFF2563EB)
-                        "Recommended" -> Color(0xFF3B82F6)
-                        else -> Color(0xFF475569)
+                        "HD" -> tokens.accentBlue
+                        "Recommended" -> Color(0xFF9333EA)
+                        else -> tokens.accentViolet
                     }
                     Box(
                         modifier = Modifier
@@ -546,23 +544,22 @@ private fun QualityOptionRow(
             Text(
                 text = "$sizeText • ${option.subLabel} • ${option.codec}",
                 style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFCBD5E1),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        // Right circular check or download icon matching Image 3
         Box(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
                 .background(
-                    if (isSelected) Color(0xFF3B82F6) else Color.White.copy(alpha = 0.08f)
+                    if (isSelected) tokens.accentBlue else tokens.accentBlue.copy(alpha = 0.10f)
                 )
                 .border(
                     width = 1.dp,
-                    color = if (isSelected) Color(0xFF60A5FA) else Color.White.copy(alpha = 0.16f),
+                    color = if (isSelected) tokens.accentViolet else tokens.glassBorderSubtle,
                     shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
@@ -570,7 +567,7 @@ private fun QualityOptionRow(
             Icon(
                 imageVector = if (isSelected) Icons.Default.Check else Icons.Default.Download,
                 contentDescription = if (isSelected) "Selected" else "Select quality",
-                tint = if (isSelected) Color.White else Color(0xFF94A3B8),
+                tint = if (isSelected) Color.White else tokens.accentBlue,
                 modifier = Modifier.size(18.dp)
             )
         }

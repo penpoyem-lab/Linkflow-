@@ -17,8 +17,8 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 data class UserPreferencesState(
     val appBrandName: String = "LinkFlow",
-    val themeMode: String = "DARK", // "DARK", "LIGHT", "SYSTEM"
-    val accentPreset: String = "ELECTRIC_CYAN", // "ELECTRIC_CYAN", "VIOLET_PULSE", "EMERALD_GLOW"
+    val themeMode: String = "LIGHT", // "LIGHT" (default), "DARK", "SYSTEM"
+    val accentPreset: String = "VIOLET_PULSE", // "VIOLET_PULSE" (default), "ELECTRIC_CYAN", "EMERALD_GLOW"
     val preferredFormat: MediaFormat = MediaFormat.MP4,
     val preferredVideoQuality: String = "1080p Full HD",
     val preferredAudioBitrate: String = "320kbps",
@@ -36,8 +36,8 @@ class PreferencesRepository(private val context: Context) {
 
     private object Keys {
         val APP_BRAND_NAME = stringPreferencesKey("app_brand_name")
-        val THEME_MODE = stringPreferencesKey("theme_mode")
-        val ACCENT_PRESET = stringPreferencesKey("accent_preset")
+        val THEME_MODE = stringPreferencesKey("theme_mode_v3_light_default")
+        val ACCENT_PRESET = stringPreferencesKey("accent_preset_v3_light_default")
         val PREFERRED_FORMAT = stringPreferencesKey("preferred_format")
         val PREFERRED_VIDEO_QUALITY = stringPreferencesKey("preferred_video_quality")
         val PREFERRED_AUDIO_BITRATE = stringPreferencesKey("preferred_audio_bitrate")
@@ -54,8 +54,8 @@ class PreferencesRepository(private val context: Context) {
     val preferencesFlow: Flow<UserPreferencesState> = context.dataStore.data.map { prefs ->
         UserPreferencesState(
             appBrandName = prefs[Keys.APP_BRAND_NAME] ?: "LinkFlow",
-            themeMode = prefs[Keys.THEME_MODE] ?: "DARK",
-            accentPreset = prefs[Keys.ACCENT_PRESET] ?: "ELECTRIC_CYAN",
+            themeMode = prefs[Keys.THEME_MODE] ?: "LIGHT",
+            accentPreset = prefs[Keys.ACCENT_PRESET] ?: "VIOLET_PULSE",
             preferredFormat = if (prefs[Keys.PREFERRED_FORMAT] == "MP3") MediaFormat.MP3 else MediaFormat.MP4,
             preferredVideoQuality = prefs[Keys.PREFERRED_VIDEO_QUALITY] ?: "1080p Full HD",
             preferredAudioBitrate = prefs[Keys.PREFERRED_AUDIO_BITRATE] ?: "320kbps",

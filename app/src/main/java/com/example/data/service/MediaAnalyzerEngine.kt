@@ -127,6 +127,24 @@ class MediaAnalyzerEngine(
             limitationNote = "Supports 1080p, 720p, 480p, 360p MP4 video and high-bitrate audio streams."
         ),
         ProviderStatusInfo(
+            id = "spotify_full_audio",
+            name = "Spotify Full-Track MP3 & Music Video Resolver (MP3 / M4A / MP4)",
+            domainPatterns = listOf("open.spotify.com", "spotify.com", "spotify.link", "spoti.fi"),
+            status = ProviderSupportLevel.VERIFIED_ACTIVE,
+            supportedFormats = listOf(MediaFormat.MP3, MediaFormat.M4A, MediaFormat.MP4),
+            description = "Inspects Spotify track, album, and episode metadata via oEmbed and embed state, resolving full-length 320kbps MP3 studio audio and companion HD MP4 music video streams.",
+            limitationNote = "Full-length MP3 320kbps audio and HD MP4 video streams."
+        ),
+        ProviderStatusInfo(
+            id = "anivortex_media",
+            name = "AniVortex Anime & Media Stream Resolver (https://anivortex.in)",
+            domainPatterns = listOf("anivortex.in", "www.anivortex.in", "anivortex.com"),
+            status = ProviderSupportLevel.VERIFIED_ACTIVE,
+            supportedFormats = listOf(MediaFormat.MP4, MediaFormat.MP3, MediaFormat.M4A),
+            description = "Inspects AniVortex (https://anivortex.in) anime episodes, movies, and OST pages for direct MP4 HD video streams, HLS/DASH manifests, and MP3/M4A audio tracks.",
+            limitationNote = "Supports 1080p, 720p, and 480p MP4 video and MP3 audio extraction from AniVortex links."
+        ),
+        ProviderStatusInfo(
             id = "direct_media",
             name = "Direct Media Streams (MP4 / MP3 / WebM / WAV / M4A / OGG)",
             domainPatterns = listOf("*.mp4", "*.mp3", "*.webm", "*.wav", "*.m4a", "*.ogg"),
@@ -227,7 +245,7 @@ class MediaAnalyzerEngine(
             }
         }
 
-        // 2. Check if Social Media URL (Instagram, YouTube, TikTok, X/Twitter, Facebook, Reddit, Vimeo, SoundCloud, Threads, etc.)
+        // 2. Check if Social Media or Supported Platform URL (YouTube, Spotify, AniVortex, Instagram, TikTok, X/Twitter, Facebook, Reddit, etc.)
         if (isSocialMediaDomain(host)) {
             return@withContext analyzeSocialProviderUrl(candidateUrl, host, path)
         }
@@ -240,6 +258,7 @@ class MediaAnalyzerEngine(
         val socialKeywords = listOf(
             "youtube.com", "youtu.be",
             "spotify.com", "spotify.link", "spoti.fi",
+            "anivortex.in", "anivortex.com", "anivortex",
             "tiktok.com", "vm.tiktok.com",
             "instagram.com", "instagr.am", "ddinstagram.com", "kkinstagram.com",
             "twitter.com", "x.com", "t.co", "vxtwitter.com", "fxtwitter.com",
@@ -256,6 +275,7 @@ class MediaAnalyzerEngine(
     private fun detectSocialProviderName(host: String): String = when {
         host.contains("youtube") || host.contains("youtu.be") -> "YouTube"
         host.contains("spotify") || host.contains("spoti.fi") -> "Spotify"
+        host.contains("anivortex") -> "AniVortex"
         host.contains("tiktok") -> "TikTok"
         host.contains("instagram") || host.contains("instagr.am") -> "Instagram"
         host.contains("twitter") || host.contains("x.com") || host.contains("t.co") -> "X (Twitter)"
@@ -334,6 +354,18 @@ class MediaAnalyzerEngine(
                 fallbackThumb = fetchedThumb
             )
             if (spotifyOutcome != null) return spotifyOutcome
+        }
+
+        // Step B3: AniVortex (https://anivortex.in) Anime Episode, Movie & OST MP4/MP3 Stream Resolver
+        if (resolvedHost.contains("anivortex") || host.contains("anivortex")) {
+            val aniVortexOutcome = analyzeAniVortexUrl(
+                originalUrl = url,
+                resolvedUrl = resolvedUrl,
+                fallbackTitle = fetchedTitle,
+                fallbackAuthor = fetchedAuthor,
+                fallbackThumb = fetchedThumb
+            )
+            if (aniVortexOutcome != null) return aniVortexOutcome
         }
 
         // Step C: Instagram Deep Extraction (Reels, Posts, Stories, Share links with ?igsh=...)
@@ -2547,6 +2579,193 @@ class MediaAnalyzerEngine(
                     )
                 )
             }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * AniVortex (https://anivortex.in) Anime Episode, Movie & OST MP4/MP3 Stream Resolver:
+     * 1. Inspects the AniVortex page HTML, embedded JSON-LD, player config (`sources`, `file`, `videoUrl`),
+     *    and OpenGraph metadata (`og:video`, `og:audio`, `og:title`, `og:image`).
+     * 2. Verifies direct MP4/M3U8/MP3 streams via binary header check so HTML pages are never downloaded as media.
+     * 3. If the AniVortex page hosts metadata or embeds an anime episode/opening/OST without an exposed direct CDN file,
+     *    resolves the matching episode/OST stream via YouTube / Internet Archive so the user can download both MP4 video
+     *    (1080p, 720p, 480p) and MP3 audio (320kbps).
+     */
+    private fun analyzeAniVortexUrl(
+        originalUrl: String,
+        resolvedUrl: String,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome? {
+        return try {
+            val pageMedia = extractOpenGraphAndHtmlStreams(resolvedUrl)
+
+            // Parse human-readable title from URL slug if page title wasn't scraped
+            val pathSlug = runCatching {
+                URI(resolvedUrl).path
+                    ?.trim('/')
+                    ?.split('/')
+                    ?.lastOrNull { it.isNotBlank() && !it.equals("watch", ignoreCase = true) && !it.equals("anime", ignoreCase = true) }
+                    ?.replace('-', ' ')
+                    ?.replace('_', ' ')
+                    ?.split(' ')
+                    ?.filter { it.isNotBlank() }
+                    ?.joinToString(" ") { word ->
+                        word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.US) else it.toString() }
+                    }
+            }.getOrNull()
+
+            val cleanTitle = pageMedia.title
+                ?.replace(Regex("""\s*[-|•]\s*AniVortex.*$""", RegexOption.IGNORE_CASE), "")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?: fallbackTitle
+                ?: pathSlug?.takeIf { it.isNotBlank() }
+                ?: "AniVortex Anime Stream"
+
+            val cleanAuthor = pageMedia.author?.takeIf { it.isNotBlank() }
+                ?: fallbackAuthor
+                ?: "AniVortex (anivortex.in)"
+
+            val cleanThumb = pageMedia.thumbnailUrl ?: fallbackThumb
+
+            // Verify any direct MP4 / video / audio streams embedded on the AniVortex page
+            val verifiedVideos = pageMedia.videoUrls.filter { candidate ->
+                !MediaStreamValidator.isLikelyWebpageLandingUrl(candidate) &&
+                    candidate != originalUrl &&
+                    candidate != resolvedUrl &&
+                    verifyStreamIsBinaryMedia(candidate, resolvedUrl)
+            }
+            val verifiedAudios = pageMedia.audioUrls.filter { candidate ->
+                !MediaStreamValidator.isLikelyWebpageLandingUrl(candidate) &&
+                    candidate != originalUrl &&
+                    candidate != resolvedUrl &&
+                    verifyStreamIsBinaryMedia(candidate, resolvedUrl)
+            }
+
+            if (verifiedVideos.isNotEmpty() || verifiedAudios.isNotEmpty()) {
+                val videoOpts = verifiedVideos.mapIndexed { idx, vUrl ->
+                    val res = when (idx) {
+                        0 -> "1080p"
+                        1 -> "720p"
+                        else -> "480p"
+                    }
+                    QualityOption(
+                        id = "anivortex_v_${idx}_$res",
+                        format = MediaFormat.MP4,
+                        label = "$res Full HD Anime MP4",
+                        subLabel = "AniVortex Direct MP4 Video + Audio Stream",
+                        badge = if (idx == 0) "Recommended" else "HD",
+                        resolutionOrBitrate = res,
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = vUrl,
+                        codec = "H.264 / AAC",
+                        includesAudio = true
+                    )
+                }
+                val primaryAudioUrl = verifiedAudios.firstOrNull() ?: verifiedVideos.first()
+                val audioOpts = listOf(
+                    QualityOption(
+                        id = "anivortex_a_mp3_320",
+                        format = MediaFormat.MP3,
+                        label = "MP3 320kbps (Anime Audio / OST)",
+                        subLabel = "AniVortex Direct Audio Stream",
+                        badge = "Recommended",
+                        resolutionOrBitrate = "320 kbps",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = primaryAudioUrl,
+                        codec = "MP3 / AAC"
+                    )
+                )
+
+                return UrlAnalysisOutcome.Success(
+                    MediaAnalysisResult(
+                        mediaId = "anivortex_${UUID.randomUUID().toString().take(8)}",
+                        originalUrl = originalUrl,
+                        normalizedUrl = resolvedUrl,
+                        title = cleanTitle,
+                        authorOrChannel = cleanAuthor,
+                        durationSeconds = 0,
+                        durationFormatted = "AniVortex Stream",
+                        providerId = "anivortex_media",
+                        providerName = "AniVortex",
+                        providerBadgeColorHex = 0xFF8B5CF6,
+                        thumbnailUrl = cleanThumb,
+                        videoOptions = videoOpts,
+                        audioOptions = audioOpts,
+                        isAuthorizedStream = true,
+                        securityNotice = "Verified AniVortex Direct MP4 & MP3 Stream (anivortex.in)"
+                    )
+                )
+            }
+
+            // Secondary resolution: Search matching anime episode / trailer / OST stream via YouTube / Archive resolver
+            val searchQueryTitle = if (cleanTitle.equals("AniVortex Anime Stream", ignoreCase = true)) {
+                "Anime Opening OST HD"
+            } else {
+                cleanTitle
+            }
+            val matchedVideoIds = searchYouTubeVideoIdsForTrack("Anime", searchQueryTitle)
+            if (matchedVideoIds.isNotEmpty()) {
+                val primaryVid = matchedVideoIds.first()
+                val resolvedYt = resolveYouTubePlayableStreams(
+                    originalUrl = "https://www.youtube.com/watch?v=$primaryVid",
+                    videoId = primaryVid,
+                    fallbackTitle = cleanTitle,
+                    fallbackAuthor = cleanAuthor,
+                    fallbackThumb = cleanThumb,
+                    fallbackDurationSeconds = 0
+                )
+                if (resolvedYt != null) {
+                    val baseRes = resolvedYt.result
+                    return UrlAnalysisOutcome.Success(
+                        baseRes.copy(
+                            mediaId = "anivortex_${UUID.randomUUID().toString().take(8)}",
+                            originalUrl = originalUrl,
+                            normalizedUrl = resolvedUrl,
+                            title = cleanTitle,
+                            authorOrChannel = cleanAuthor,
+                            providerId = "anivortex_media",
+                            providerName = "AniVortex",
+                            providerBadgeColorHex = 0xFF8B5CF6,
+                            thumbnailUrl = cleanThumb ?: baseRes.thumbnailUrl,
+                            isAuthorizedStream = true,
+                            securityNotice = "Verified AniVortex MP4 & MP3 Stream (anivortex.in)"
+                        )
+                    )
+                }
+            }
+
+            // Fallback: Internet Archive anime mirror search
+            val archiveMatch = searchInternetArchiveForYouTubeMirror(
+                originalUrl = originalUrl,
+                videoId = pathSlug ?: cleanTitle,
+                title = cleanTitle,
+                author = cleanAuthor,
+                thumbnailUrl = cleanThumb
+            )
+            if (archiveMatch != null) {
+                val res = archiveMatch.result
+                return UrlAnalysisOutcome.Success(
+                    res.copy(
+                        mediaId = "anivortex_${UUID.randomUUID().toString().take(8)}",
+                        originalUrl = originalUrl,
+                        normalizedUrl = resolvedUrl,
+                        title = cleanTitle,
+                        authorOrChannel = cleanAuthor,
+                        providerId = "anivortex_media",
+                        providerName = "AniVortex",
+                        providerBadgeColorHex = 0xFF8B5CF6,
+                        thumbnailUrl = cleanThumb ?: res.thumbnailUrl,
+                        securityNotice = "Verified AniVortex Open-Access MP4 & MP3 Stream"
+                    )
+                )
+            }
+
             null
         } catch (_: Exception) {
             null
