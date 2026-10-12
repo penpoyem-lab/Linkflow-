@@ -341,8 +341,10 @@ class LinkFlowViewModel(
         analysis: MediaAnalysisResult,
         preferredFormat: MediaFormat
     ): QualityOption? {
-        return if (preferredFormat == MediaFormat.MP3) {
-            analysis.audioOptions.firstOrNull() ?: analysis.videoOptions.firstOrNull()
+        return if (!preferredFormat.isVideo) {
+            analysis.audioOptions.firstOrNull { it.format == preferredFormat }
+                ?: analysis.audioOptions.firstOrNull()
+                ?: analysis.videoOptions.firstOrNull()
         } else {
             analysis.videoOptions.firstOrNull() ?: analysis.audioOptions.firstOrNull()
         }

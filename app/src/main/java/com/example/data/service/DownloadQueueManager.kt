@@ -45,12 +45,17 @@ class DownloadQueueManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val pausedFlags = ConcurrentHashMap<String, Boolean>()
-    // Enforce concurrent download limit (maximum 3 simultaneous HTTP streams)
-    private val concurrencySemaphore = kotlinx.coroutines.sync.Semaphore(permits = 3)
+    // Enforce concurrent download limit (maximum 4 simultaneous HTTP streams)
+    private val concurrencySemaphore = kotlinx.coroutines.sync.Semaphore(permits = 4)
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .dispatcher(okhttp3.Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 16
+        })
+        .connectionPool(okhttp3.ConnectionPool(16, 5, TimeUnit.MINUTES))
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(35, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addNetworkInterceptor { chain ->
@@ -581,80 +586,106 @@ class DownloadQueueManager(
             return rawUrl
         }
 
-        val initReq = Request.Builder()
-            .url(rawUrl)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-            )
-            .header("Accept", "application/json")
-            .get()
-            .build()
-
+        val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         var jobId = ""
         var progressUrl = ""
-        okHttpClient.newCall(initReq).execute().use { resp ->
-            if (!resp.isSuccessful) {
-                throw IOException("Cloud stream initializer returned HTTP ${resp.code}")
+
+        // Retry job initialization up to 2 times if transient network hiccup occurs
+        var lastInitError: Exception? = null
+        for (attempt in 1..2) {
+            try {
+                val initReq = Request.Builder()
+                    .url(rawUrl)
+                    .header("User-Agent", ua)
+                    .header("Accept", "application/json")
+                    .header("Referer", "https://en.loader.to/")
+                    .get()
+                    .build()
+
+                okHttpClient.newCall(initReq).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        throw IOException("Cloud stream initializer returned HTTP ${resp.code}")
+                    }
+                    val bodyStr = resp.body?.string().orEmpty()
+                    val json = org.json.JSONObject(bodyStr)
+                    if (!json.optBoolean("success", false)) {
+                        throw IOException(json.optString("message").ifBlank { "Unable to initialize cloud stream job" })
+                    }
+                    jobId = json.optString("id").trim()
+                    val direct = json.optString("url").takeIf { it.startsWith("http") }
+                        ?: json.optString("download_url").takeIf { it.startsWith("http") }
+                    if (direct != null) {
+                        return direct
+                    }
+                    progressUrl = json.optString("progress_url").takeIf { it.startsWith("http") }
+                        ?: "https://p.savenow.to/api/progress?id=$jobId"
+                }
+                if (jobId.isNotBlank()) break
+            } catch (e: Exception) {
+                lastInitError = e
+                kotlinx.coroutines.delay(600L)
             }
-            val bodyStr = resp.body?.string().orEmpty()
-            val json = org.json.JSONObject(bodyStr)
-            if (!json.optBoolean("success", false)) {
-                throw IOException(json.optString("message").ifBlank { "Unable to initialize cloud stream job" })
-            }
-            jobId = json.optString("id").trim()
-            val direct = json.optString("url").takeIf { it.startsWith("http") }
-                ?: json.optString("download_url").takeIf { it.startsWith("http") }
-            if (direct != null) {
-                return direct
-            }
-            progressUrl = json.optString("progress_url").takeIf { it.startsWith("http") }
-                ?: "https://loader.to/ajax/progress.php?id=$jobId"
         }
 
         if (jobId.isBlank()) {
-            throw IOException("Cloud stream job ID was empty")
+            throw lastInitError ?: IOException("Cloud stream job ID was empty")
         }
 
-        for (pollStep in 1..30) {
+        val fallbackProgressUrl = "https://loader.to/ajax/progress.php?id=$jobId"
+
+        for (pollStep in 1..70) {
             if (pausedFlags[task.jobId] == true) {
                 throw CancellationException("Paused by user")
             }
-            kotlinx.coroutines.delay(1100L)
+            val pollDelayMs = if (pollStep <= 6) 450L else 700L
+            kotlinx.coroutines.delay(pollDelayMs)
+            val activePollUrl = if (pollStep % 3 == 0) fallbackProgressUrl else progressUrl
             val pollReq = Request.Builder()
-                .url(progressUrl)
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-                )
+                .url(activePollUrl)
+                .header("User-Agent", ua)
                 .header("Accept", "application/json")
+                .header("Referer", "https://en.loader.to/")
                 .get()
                 .build()
 
-            okHttpClient.newCall(pollReq).execute().use { pollResp ->
-                if (pollResp.isSuccessful) {
-                    val pBody = pollResp.body?.string().orEmpty()
-                    if (pBody.trimStart().startsWith("{")) {
-                        val pJson = org.json.JSONObject(pBody)
-                        val dlUrl = pJson.optString("download_url").takeIf { it.startsWith("http") }
-                        if (dlUrl != null) {
-                            return dlUrl
-                        }
-                        val successCode = pJson.optInt("success", -1)
-                        val textStatus = pJson.optString("text")
-                        if (successCode == 0 && textStatus.equals("Failed", ignoreCase = true)) {
-                            throw IOException(pJson.optString("message").ifBlank { "Stream transcode failed" })
-                        }
-                        val rawProg = pJson.optInt("progress", 50).coerceIn(10, 950)
-                        val prepPct = (rawProg / 35).coerceIn(2, 28)
-                        dao.upsertDownload(
-                            task.copy(
-                                state = DownloadJobState.PREPARING.name,
-                                progressPercent = prepPct,
-                                updatedAt = System.currentTimeMillis()
+            runCatching {
+                okHttpClient.newCall(pollReq).execute().use { pollResp ->
+                    if (pollResp.isSuccessful) {
+                        val pBody = pollResp.body?.string().orEmpty()
+                        if (pBody.trimStart().startsWith("{")) {
+                            val pJson = org.json.JSONObject(pBody)
+                            val dlUrl = pJson.optString("download_url").takeIf { it.startsWith("http") }
+                            if (dlUrl != null) {
+                                return dlUrl
+                            }
+                            val altArr = pJson.optJSONArray("alternative_download_urls")
+                            if (altArr != null && altArr.length() > 0) {
+                                val firstAlt = altArr.optJSONObject(0)?.optString("url")?.takeIf { it.startsWith("http") }
+                                    ?: altArr.optString(0).takeIf { it.startsWith("http") }
+                                if (firstAlt != null) {
+                                    return firstAlt
+                                }
+                            }
+                            val successCode = pJson.optInt("success", -1)
+                            val textStatus = pJson.optString("text")
+                            if (successCode == 0 && textStatus.equals("Failed", ignoreCase = true)) {
+                                throw IOException(pJson.optString("message").ifBlank { "Stream transcode failed" })
+                            }
+                            val rawProg = pJson.optInt("progress", 50).coerceIn(10, 950)
+                            val prepPct = (rawProg / 35).coerceIn(2, 28)
+                            dao.upsertDownload(
+                                task.copy(
+                                    state = DownloadJobState.PREPARING.name,
+                                    progressPercent = prepPct,
+                                    updatedAt = System.currentTimeMillis()
+                                )
                             )
-                        )
+                        }
                     }
+                }
+            }.onFailure { err ->
+                if (err is IOException && err.message?.contains("failed", ignoreCase = true) == true) {
+                    throw err
                 }
             }
         }
@@ -671,7 +702,8 @@ class DownloadQueueManager(
             "${uri.scheme ?: "https"}://${uri.host ?: ""}/"
         }.getOrDefault("https://www.google.com/")
 
-        val isCloudTranscodeStream = targetUrl.contains("savenow.to", ignoreCase = true)
+        val isCloudTranscodeStream = targetUrl.contains("savenow.to", ignoreCase = true) ||
+            targetUrl.contains("pacific-cdn", ignoreCase = true)
         val existingBytes = if (destinationFile.exists()) destinationFile.length() else 0L
         var useRangeResume = existingBytes > 0L && task.downloadedBytes > 0L && !isCloudTranscodeStream
 
@@ -724,7 +756,7 @@ class DownloadQueueManager(
 
             val contentType = resp.header("Content-Type")?.lowercase().orEmpty()
             if (contentType.contains("text/html") || contentType.contains("application/xhtml")) {
-                throw IOException("URL returned an HTML webpage instead of a binary MP4/MP3 stream")
+                throw IOException("URL returned an HTML webpage instead of a binary media stream")
             }
 
             val body = resp.body ?: throw IOException("Empty response body from server")
@@ -752,10 +784,10 @@ class DownloadQueueManager(
             }
 
             val isGoogleVideoStream = targetUrl.contains("googlevideo.com", ignoreCase = true)
-            val chunkThresholdBytes = 2L * 1024L * 1024L // 2 MB chunk threshold for fast unthrottled googlevideo transfers
+            val chunkThresholdBytes = 1024L * 1024L // 1 MB threshold for parallel multi-chunk unthrottled googlevideo transfers
 
             if (isGoogleVideoStream && totalExpected > chunkThresholdBytes) {
-                // Close initial response and stream in fast 2MB byte ranges to bypass googlevideo single-connection bandwidth throttling
+                // Close initial response and stream in parallel 1.5MB byte ranges to bypass googlevideo single-connection bandwidth throttling
                 resp.close()
                 downloadGoogleVideoInFastChunks(
                     targetUrl = targetUrl,
@@ -771,7 +803,7 @@ class DownloadQueueManager(
 
             val input = body.byteStream()
             val output = FileOutputStream(destinationFile, appendMode)
-            val buffer = ByteArray(64 * 1024)
+            val buffer = ByteArray(256 * 1024) // 256 KB high-throughput I/O buffer
             var transferred = startingBytes
             var lastReportTime = System.currentTimeMillis()
             var bytesAtLastReport = transferred
@@ -822,8 +854,8 @@ class DownloadQueueManager(
     }
 
     /**
-     * Streams YouTube `googlevideo.com` media in 2 MB byte-range chunks so YouTube CDN servers
-     * do not throttle the connection to 40 KB/s or drop long adaptive video transfers.
+     * Streams YouTube `googlevideo.com` media using 4 concurrent byte-range workers writing directly
+     * into a pre-sized RandomAccessFile so downloads complete up to 4x faster without CDN throttling.
      */
     private suspend fun downloadGoogleVideoInFastChunks(
         targetUrl: String,
@@ -833,66 +865,88 @@ class DownloadQueueManager(
         appendMode: Boolean,
         task: DownloadTaskEntity,
         destinationFile: File
-    ) {
-        val chunkSize = 2L * 1024L * 1024L // 2 MB per chunk
-        var transferred = startingBytes
-        var lastReportTime = System.currentTimeMillis()
-        var bytesAtLastReport = transferred
-        val buffer = ByteArray(64 * 1024)
+    ) = kotlinx.coroutines.coroutineScope {
+        val chunkSize = 1536L * 1024L // 1.5 MB per chunk
+        val startOffset = if (appendMode) startingBytes else 0L
+        val ranges = mutableListOf<LongRange>()
+        var cursor = startOffset
+        while (cursor < totalExpected) {
+            val end = minOf(cursor + chunkSize - 1L, totalExpected - 1L)
+            ranges.add(cursor..end)
+            cursor = end + 1L
+        }
 
-        FileOutputStream(destinationFile, appendMode).use { out ->
-            while (transferred < totalExpected) {
-                if (pausedFlags[task.jobId] == true) return
-                val chunkEnd = minOf(transferred + chunkSize - 1L, totalExpected - 1L)
-                val rangeHeader = "bytes=$transferred-$chunkEnd"
+        java.io.RandomAccessFile(destinationFile, "rw").use { raf ->
+            if (!appendMode) {
+                raf.setLength(totalExpected)
+            }
+        }
 
-                executeStreamRequest(
-                    targetUrl = targetUrl,
-                    referer = referer,
-                    rangeHeader = rangeHeader
-                ).use { chunkResp ->
-                    if (!chunkResp.isSuccessful && chunkResp.code != 206) {
-                        throw IOException("HTTP ${chunkResp.code} during chunked stream transfer")
-                    }
-                    val chunkIn = chunkResp.body?.byteStream()
-                        ?: throw IOException("Empty chunk body from stream server")
-                    var read: Int
-                    while (chunkIn.read(buffer).also { read = it } != -1) {
-                        if (pausedFlags[task.jobId] == true) return
-                        out.write(buffer, 0, read)
-                        transferred += read
+        val atomicTransferred = java.util.concurrent.atomic.AtomicLong(startOffset)
+        val lastReportTime = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val bytesAtLastReport = java.util.concurrent.atomic.AtomicLong(startOffset)
+        val chunkSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 4)
 
-                        val now = System.currentTimeMillis()
-                        val elapsedMs = now - lastReportTime
-                        if (elapsedMs >= 140) {
-                            val deltaBytes = transferred - bytesAtLastReport
-                            val speed = (deltaBytes * 1000L) / max(elapsedMs, 1L)
-                            val pct = ((transferred.toDouble() / totalExpected.toDouble()) * 99.0)
-                                .roundToInt()
-                                .coerceIn(1, 99)
-                            val remainingBytes = max(totalExpected - transferred, 0L)
-                            val eta = if (speed > 0) remainingBytes / speed else -1L
+        val jobs = ranges.map { range ->
+            launch(Dispatchers.IO) {
+                chunkSemaphore.acquire()
+                try {
+                    if (pausedFlags[task.jobId] == true) return@launch
+                    val rangeHeader = "bytes=${range.first}-${range.last}"
+                    executeStreamRequest(
+                        targetUrl = targetUrl,
+                        referer = referer,
+                        rangeHeader = rangeHeader
+                    ).use { chunkResp ->
+                        if (!chunkResp.isSuccessful && chunkResp.code != 206) {
+                            throw IOException("HTTP ${chunkResp.code} during parallel chunk transfer")
+                        }
+                        val chunkIn = chunkResp.body?.byteStream()
+                            ?: throw IOException("Empty chunk body from stream server")
+                        java.io.RandomAccessFile(destinationFile, "rw").use { chunkRaf ->
+                            chunkRaf.seek(range.first)
+                            val buffer = ByteArray(128 * 1024)
+                            var read: Int
+                            while (chunkIn.read(buffer).also { read = it } != -1) {
+                                if (pausedFlags[task.jobId] == true) return@launch
+                                chunkRaf.write(buffer, 0, read)
+                                val currentTotal = atomicTransferred.addAndGet(read.toLong())
 
-                            dao.upsertDownload(
-                                task.copy(
-                                    state = DownloadJobState.DOWNLOADING.name,
-                                    progressPercent = pct,
-                                    downloadedBytes = transferred,
-                                    totalBytes = totalExpected,
-                                    speedBytesPerSec = speed,
-                                    etaSeconds = eta,
-                                    localFilePath = destinationFile.absolutePath,
-                                    updatedAt = now
-                                )
-                            )
-                            lastReportTime = now
-                            bytesAtLastReport = transferred
+                                val now = System.currentTimeMillis()
+                                val prevReport = lastReportTime.get()
+                                val elapsedMs = now - prevReport
+                                if (elapsedMs >= 150 && lastReportTime.compareAndSet(prevReport, now)) {
+                                    val prevBytes = bytesAtLastReport.getAndSet(currentTotal)
+                                    val deltaBytes = max(currentTotal - prevBytes, 0L)
+                                    val speed = (deltaBytes * 1000L) / max(elapsedMs, 1L)
+                                    val pct = ((currentTotal.toDouble() / totalExpected.toDouble()) * 99.0)
+                                        .roundToInt()
+                                        .coerceIn(1, 99)
+                                    val remainingBytes = max(totalExpected - currentTotal, 0L)
+                                    val eta = if (speed > 0) remainingBytes / speed else -1L
+
+                                    dao.upsertDownload(
+                                        task.copy(
+                                            state = DownloadJobState.DOWNLOADING.name,
+                                            progressPercent = pct,
+                                            downloadedBytes = currentTotal,
+                                            totalBytes = totalExpected,
+                                            speedBytesPerSec = speed,
+                                            etaSeconds = eta,
+                                            localFilePath = destinationFile.absolutePath,
+                                            updatedAt = now
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
+                } finally {
+                    chunkSemaphore.release()
                 }
             }
-            out.flush()
         }
+        jobs.forEach { it.join() }
     }
 
     private fun executeStreamRequest(
@@ -903,7 +957,7 @@ class DownloadQueueManager(
         val isGoogleVideo = targetUrl.contains("googlevideo.com", ignoreCase = true)
         val userAgent = when {
             isGoogleVideo && targetUrl.contains("c=IOS", ignoreCase = true) ->
-                "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)"
+                "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)"
             isGoogleVideo && targetUrl.contains("c=ANDROID_CREATOR", ignoreCase = true) ->
                 "com.google.android.apps.youtube.creator/24.30.100 (Linux; U; Android 14; en_US) gzip"
             isGoogleVideo && targetUrl.contains("c=ANDROID_TESTSUITE", ignoreCase = true) ->
@@ -911,9 +965,9 @@ class DownloadQueueManager(
             isGoogleVideo && targetUrl.contains("c=ANDROID", ignoreCase = true) && !targetUrl.contains("c=ANDROID_VR", ignoreCase = true) ->
                 "com.google.android.youtube/19.44.38 (Linux; U; Android 14; en_US) gzip"
             isGoogleVideo ->
-                "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
+                "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
             else ->
-                "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         }
 
         val builder = Request.Builder()

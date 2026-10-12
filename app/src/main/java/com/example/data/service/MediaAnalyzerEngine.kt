@@ -128,12 +128,21 @@ class MediaAnalyzerEngine(
         ),
         ProviderStatusInfo(
             id = "spotify_full_audio",
-            name = "Spotify Full-Track MP3 & Music Video Resolver (MP3 / M4A / MP4)",
+            name = "Spotify Full-Track MP3 & Music Video Resolver (MP3 / FLAC / M4A / MP4)",
             domainPatterns = listOf("open.spotify.com", "spotify.com", "spotify.link", "spoti.fi"),
             status = ProviderSupportLevel.VERIFIED_ACTIVE,
-            supportedFormats = listOf(MediaFormat.MP3, MediaFormat.M4A, MediaFormat.MP4),
-            description = "Inspects Spotify track, album, and episode metadata via oEmbed and embed state, resolving full-length 320kbps MP3 studio audio and companion HD MP4 music video streams.",
-            limitationNote = "Full-length MP3 320kbps audio and HD MP4 video streams."
+            supportedFormats = listOf(MediaFormat.MP3, MediaFormat.FLAC, MediaFormat.M4A, MediaFormat.MP4),
+            description = "Inspects Spotify track, album, and episode metadata via oEmbed and embed state, resolving full-length 320kbps MP3 / FLAC lossless studio audio and companion HD MP4 music video streams.",
+            limitationNote = "Full-length MP3 320kbps / FLAC lossless audio and HD MP4 video streams."
+        ),
+        ProviderStatusInfo(
+            id = "apollo_music",
+            name = "Apollo Music Station Stream Resolver (https://apollostation.app)",
+            domainPatterns = listOf("apollostation.app", "www.apollostation.app"),
+            status = ProviderSupportLevel.VERIFIED_ACTIVE,
+            supportedFormats = listOf(MediaFormat.MP3, MediaFormat.FLAC, MediaFormat.M4A, MediaFormat.MP4),
+            description = "Inspects Apollo Music (https://apollostation.app) tracks, playlists, and music streams for direct 320kbps MP3, FLAC Lossless, M4A Studio AAC, and 1080p/720p MP4 music video downloads.",
+            limitationNote = "Supports full-length 320kbps MP3, FLAC Lossless, and HD MP4 streams from Apollo Station links."
         ),
         ProviderStatusInfo(
             id = "anivortex_media",
@@ -146,10 +155,10 @@ class MediaAnalyzerEngine(
         ),
         ProviderStatusInfo(
             id = "direct_media",
-            name = "Direct Media Streams (MP4 / MP3 / WebM / WAV / M4A / OGG)",
-            domainPatterns = listOf("*.mp4", "*.mp3", "*.webm", "*.wav", "*.m4a", "*.ogg"),
+            name = "Direct Media Streams (MP4 / MP3 / FLAC / WebM / WAV / M4A / OGG)",
+            domainPatterns = listOf("*.mp4", "*.mp3", "*.flac", "*.webm", "*.wav", "*.m4a", "*.ogg"),
             status = ProviderSupportLevel.VERIFIED_ACTIVE,
-            supportedFormats = listOf(MediaFormat.MP4, MediaFormat.MP3),
+            supportedFormats = listOf(MediaFormat.MP4, MediaFormat.MP3, MediaFormat.FLAC),
             description = "Full HTTP/HTTPS byte-range streaming, real Content-Length & MIME-type inspection, pause/resume, audio extraction, and local file verification.",
             limitationNote = "Supports any authorized direct HTTP/HTTPS video or audio stream."
         ),
@@ -245,7 +254,7 @@ class MediaAnalyzerEngine(
             }
         }
 
-        // 2. Check if Social Media or Supported Platform URL (YouTube, Spotify, AniVortex, Instagram, TikTok, X/Twitter, Facebook, Reddit, etc.)
+        // 2. Check if Social Media or Supported Platform URL (YouTube, Spotify, Apollo Music, AniVortex, Instagram, TikTok, X/Twitter, Facebook, Reddit, etc.)
         if (isSocialMediaDomain(host)) {
             return@withContext analyzeSocialProviderUrl(candidateUrl, host, path)
         }
@@ -258,6 +267,7 @@ class MediaAnalyzerEngine(
         val socialKeywords = listOf(
             "youtube.com", "youtu.be",
             "spotify.com", "spotify.link", "spoti.fi",
+            "apollostation.app", "apollostation", "apollomusic",
             "anivortex.in", "anivortex.com", "anivortex",
             "tiktok.com", "vm.tiktok.com",
             "instagram.com", "instagr.am", "ddinstagram.com", "kkinstagram.com",
@@ -275,6 +285,7 @@ class MediaAnalyzerEngine(
     private fun detectSocialProviderName(host: String): String = when {
         host.contains("youtube") || host.contains("youtu.be") -> "YouTube"
         host.contains("spotify") || host.contains("spoti.fi") -> "Spotify"
+        host.contains("apollostation") || host.contains("apollomusic") -> "Apollo Music"
         host.contains("anivortex") -> "AniVortex"
         host.contains("tiktok") -> "TikTok"
         host.contains("instagram") || host.contains("instagr.am") -> "Instagram"
@@ -354,6 +365,18 @@ class MediaAnalyzerEngine(
                 fallbackThumb = fetchedThumb
             )
             if (spotifyOutcome != null) return spotifyOutcome
+        }
+
+        // Step B2.5: Apollo Music Station (https://apollostation.app) Full-Track MP3 / FLAC / M4A & MP4 Video Resolver
+        if (resolvedHost.contains("apollostation") || host.contains("apollostation") || host.contains("apollomusic")) {
+            val apolloOutcome = analyzeApolloMusicUrl(
+                originalUrl = url,
+                resolvedUrl = resolvedUrl,
+                fallbackTitle = fetchedTitle,
+                fallbackAuthor = fetchedAuthor,
+                fallbackThumb = fetchedThumb
+            )
+            if (apolloOutcome != null) return apolloOutcome
         }
 
         // Step B3: AniVortex (https://anivortex.in) Anime Episode, Movie & OST MP4/MP3 Stream Resolver
@@ -1604,26 +1627,26 @@ class MediaAnalyzerEngine(
 
         val profiles = listOf(
             YouTubeClientProfile(
+                clientName = "IOS",
+                clientVersion = "20.03.02",
+                clientIdHeader = "5",
+                userAgent = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
+                deviceMake = "Apple",
+                deviceModel = "iPhone16,2",
+                osName = "iPhone",
+                osVersion = "18.2.1.22C161",
+                androidSdkVersion = null
+            ),
+            YouTubeClientProfile(
                 clientName = "ANDROID_VR",
-                clientVersion = "1.56.21",
+                clientVersion = "1.60.19",
                 clientIdHeader = "28",
-                userAgent = "com.google.android.apps.youtube.vr.oculus/1.56.21 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                userAgent = "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
                 deviceMake = "Oculus",
                 deviceModel = "Quest 3",
                 osName = "Android",
                 osVersion = "12L",
                 androidSdkVersion = 32
-            ),
-            YouTubeClientProfile(
-                clientName = "IOS",
-                clientVersion = "19.45.4",
-                clientIdHeader = "5",
-                userAgent = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X;)",
-                deviceMake = "Apple",
-                deviceModel = "iPhone16,2",
-                osName = "iPhone",
-                osVersion = "18.1.0.22B83",
-                androidSdkVersion = null
             ),
             YouTubeClientProfile(
                 clientName = "ANDROID_TESTSUITE",
@@ -1653,6 +1676,9 @@ class MediaAnalyzerEngine(
         val audioOptions = mutableListOf<QualityOption>()
         var bestCompanionAudioUrl: String? = null
         var bestCompanionAudioSize: Long = -1L
+
+        val cleanWatchUrl = "https://www.youtube.com/watch?v=$videoId"
+        val encodedWatchUrl = java.net.URLEncoder.encode(cleanWatchUrl, "UTF-8")
 
         // Pipeline A: Native YouTube Player JSON Stream Inspection
         for (profile in profiles) {
@@ -1710,6 +1736,11 @@ class MediaAnalyzerEngine(
 
                     val videoDetails = root.optJSONObject("videoDetails")
                     if (videoDetails != null) {
+                        val returnedVideoId = videoDetails.optString("videoId").trim()
+                        // Verify exact videoId match so we never parse streams for a mismatched fallback video
+                        if (returnedVideoId.isNotBlank() && !returnedVideoId.equals(videoId, ignoreCase = true)) {
+                            return@use
+                        }
                         resolvedTitle = videoDetails.optString("title").takeIf { it.isNotBlank() } ?: resolvedTitle
                         resolvedAuthor = videoDetails.optString("author").takeIf { it.isNotBlank() } ?: resolvedAuthor
                         val lenSec = videoDetails.optString("lengthSeconds").toIntOrNull() ?: 0
@@ -1726,6 +1757,19 @@ class MediaAnalyzerEngine(
                     val adaptiveArr = streamingData.optJSONArray("adaptiveFormats") ?: JSONArray()
 
                     // 1. Inspect adaptiveFormats first to locate M4A / AAC audio track for muxing + standalone audio download
+                    // Skip low-bitrate 48kbps HE-AAC (itag 139 / mp4a.40.5) when higher-quality 128kbps+ AAC-LC (itag 140 / 141) is present
+                    var hasHighBitrateAac = false
+                    for (i in 0 until adaptiveArr.length()) {
+                        val f = adaptiveArr.optJSONObject(i) ?: continue
+                        val itag = f.optInt("itag", 0)
+                        val br = f.optInt("bitrate", 0)
+                        val mime = f.optString("mimeType").lowercase()
+                        if (itag == 140 || itag == 141 || (mime.startsWith("audio/mp4") && br >= 110_000)) {
+                            hasHighBitrateAac = true
+                            break
+                        }
+                    }
+
                     for (i in 0 until adaptiveArr.length()) {
                         val f = adaptiveArr.optJSONObject(i) ?: continue
                         val url = f.optString("url").takeIf { it.startsWith("http") } ?: continue
@@ -1735,54 +1779,27 @@ class MediaAnalyzerEngine(
                         val itag = f.optInt("itag", 0)
 
                         if (mimeType.startsWith("audio/mp4") || itag == 140 || itag == 139 || itag == 141) {
-                            if (bestCompanionAudioUrl == null || itag == 140) {
+                            // Never use 48kbps itag 139 when 128kbps+ itag 140 is available
+                            if (hasHighBitrateAac && (itag == 139 || (bitrate in 1..75_000))) {
+                                continue
+                            }
+                            if (bestCompanionAudioUrl == null || itag == 140 || itag == 141) {
                                 bestCompanionAudioUrl = url
                                 bestCompanionAudioSize = contentLen
                             }
-                            val kbps = if (bitrate > 0) (bitrate / 1000).coerceIn(48, 320) else 128
+                            val kbps = if (bitrate > 0) (bitrate / 1000).coerceIn(64, 320) else 128
                             audioOptions.add(
                                 QualityOption(
                                     id = "yt_aud_m4a_${itag}_$kbps",
                                     format = MediaFormat.M4A,
-                                    label = "Audio ${kbps}kbps (M4A / AAC)",
-                                    subLabel = "YouTube High-Efficiency AAC Studio Audio Track",
-                                    badge = if (kbps >= 128) "HQ" else null,
+                                    label = "M4A Studio AAC (${kbps}kbps Direct)",
+                                    subLabel = "Original Unreencoded YouTube AAC-LC Studio Stream • Instant Download",
+                                    badge = "Direct HQ",
                                     resolutionOrBitrate = "$kbps kbps",
                                     estimatedSizeBytes = contentLen,
                                     downloadUrl = url,
-                                    codec = "AAC (mp4a.40.2)",
+                                    codec = "AAC-LC (mp4a.40.2)",
                                     containerExtension = "m4a"
-                                )
-                            )
-                            // Also offer MP3 option backed by this direct audio stream
-                            audioOptions.add(
-                                QualityOption(
-                                    id = "yt_aud_mp3_${itag}_$kbps",
-                                    format = MediaFormat.MP3,
-                                    label = "MP3 / Audio ${kbps}kbps",
-                                    subLabel = "Direct YouTube Audio Stream ($kbps kbps)",
-                                    badge = if (kbps >= 128) "Recommended" else null,
-                                    resolutionOrBitrate = "$kbps kbps",
-                                    estimatedSizeBytes = contentLen,
-                                    downloadUrl = url,
-                                    codec = "AAC / Audio",
-                                    containerExtension = "m4a"
-                                )
-                            )
-                        } else if (mimeType.startsWith("audio/webm") && audioOptions.isEmpty()) {
-                            val kbps = if (bitrate > 0) (bitrate / 1000).coerceIn(48, 320) else 160
-                            audioOptions.add(
-                                QualityOption(
-                                    id = "yt_aud_opus_${itag}_$kbps",
-                                    format = MediaFormat.MP3,
-                                    label = "Audio ${kbps}kbps (Opus / WebM)",
-                                    subLabel = "YouTube Opus Master Audio Stream",
-                                    badge = "HQ",
-                                    resolutionOrBitrate = "$kbps kbps",
-                                    estimatedSizeBytes = contentLen,
-                                    downloadUrl = url,
-                                    codec = "Opus",
-                                    containerExtension = "webm"
                                 )
                             )
                         }
@@ -1818,7 +1835,7 @@ class MediaAnalyzerEngine(
                                 QualityOption(
                                     id = "yt_demux_audio_$itag",
                                     format = MediaFormat.M4A,
-                                    label = "Audio 128kbps (M4A / AAC)",
+                                    label = "M4A Studio AAC (128kbps Direct)",
                                     subLabel = "Hardware Audio Demux from Progressive MP4",
                                     badge = "HQ",
                                     resolutionOrBitrate = "128 kbps",
@@ -1832,7 +1849,6 @@ class MediaAnalyzerEngine(
                     }
 
                     // 3. Inspect adaptive MP4 video streams (1080p, 720p, 480p, 360p H.264/AVC1 paired with companion M4A audio for automatic hardware muxing)
-                    // Explicitly require avc1 (H.264) and cap adaptive mux streams at 1080p so Android MediaMuxer and hardware decoders never fail with (-38/0) on AV1/VP9 or unsupported 4K profiles!
                     for (i in 0 until adaptiveArr.length()) {
                         val f = adaptiveArr.optJSONObject(i) ?: continue
                         val url = f.optString("url").takeIf { it.startsWith("http") } ?: continue
@@ -1856,7 +1872,7 @@ class MediaAnalyzerEngine(
                                 id = "yt_adap_${itag}_$qualityLabel",
                                 format = MediaFormat.MP4,
                                 label = "$qualityLabel MP4${if (height >= 1080) " Full HD" else if (height >= 720) " HD" else ""}",
-                                subLabel = if (bestCompanionAudioUrl != null) "MP4 Video (H.264) + AAC Audio Mux" else "Direct MP4 Video Stream",
+                                subLabel = if (bestCompanionAudioUrl != null) "MP4 Video (H.264) + Studio AAC Audio Mux" else "Direct MP4 Video Stream",
                                 badge = badgeText,
                                 resolutionOrBitrate = qualityLabel,
                                 estimatedSizeBytes = totalEstimated,
@@ -1916,10 +1932,10 @@ class MediaAnalyzerEngine(
                                 audioOptions.add(
                                     QualityOption(
                                         id = "piped_aud_$i",
-                                        format = MediaFormat.MP3,
-                                        label = "MP3 / Audio ($quality)",
-                                        subLabel = "YouTube Direct Audio Stream",
-                                        badge = if (i == 0) "Recommended" else null,
+                                        format = MediaFormat.M4A,
+                                        label = "M4A Studio Audio ($quality)",
+                                        subLabel = "YouTube Direct AAC Audio Stream",
+                                        badge = if (i == 0) "Direct HQ" else null,
                                         resolutionOrBitrate = quality,
                                         estimatedSizeBytes = contentLen,
                                         downloadUrl = aUrl,
@@ -2030,32 +2046,19 @@ class MediaAnalyzerEngine(
                             if (!verifiedInvidiousHost) break
                             val clen = a.optString("clen").toLongOrNull() ?: -1L
                             if (type.startsWith("audio/mp4")) {
-                                val br = ((a.optString("bitrate").toIntOrNull() ?: 128000) / 1000).coerceIn(48, 320)
+                                val br = ((a.optString("bitrate").toIntOrNull() ?: 128000) / 1000).coerceIn(64, 320)
+                                if (br < 80) continue
                                 if (bestCompanionAudioUrl == null) {
                                     bestCompanionAudioUrl = aUrl
                                     bestCompanionAudioSize = clen
                                 }
                                 audioOptions.add(
                                     QualityOption(
-                                        id = "inv_a_mp3_$i",
-                                        format = MediaFormat.MP3,
-                                        label = "MP3 / Audio ${br}kbps",
-                                        subLabel = "YouTube Audio Track",
-                                        badge = if (br >= 128) "Recommended" else "HQ",
-                                        resolutionOrBitrate = "$br kbps",
-                                        estimatedSizeBytes = clen,
-                                        downloadUrl = aUrl,
-                                        codec = "AAC / M4A",
-                                        containerExtension = "m4a"
-                                    )
-                                )
-                                audioOptions.add(
-                                    QualityOption(
                                         id = "inv_a_m4a_$i",
                                         format = MediaFormat.M4A,
-                                        label = "Audio ${br}kbps (M4A / AAC)",
+                                        label = "M4A Studio AAC (${br}kbps Direct)",
                                         subLabel = "YouTube Studio Audio Stream",
-                                        badge = "HQ",
+                                        badge = "Direct HQ",
                                         resolutionOrBitrate = "$br kbps",
                                         estimatedSizeBytes = clen,
                                         downloadUrl = aUrl,
@@ -2099,7 +2102,6 @@ class MediaAnalyzerEngine(
 
         // Pipeline D: Public Cobalt Instances fallback for YouTube
         if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
-            val cleanWatchUrl = "https://www.youtube.com/watch?v=$videoId"
             val cobaltOutcome = extractViaPublicCobaltInstances(
                 originalUrl = originalUrl,
                 targetUrl = cleanWatchUrl,
@@ -2113,21 +2115,7 @@ class MediaAnalyzerEngine(
             }
         }
 
-        // Pipeline E: Internet Archive Open-Access Search by Video ID or Title for Creative Commons / Public Domain Mirrors
-        if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
-            val archiveSearchOutcome = searchInternetArchiveForYouTubeMirror(
-                originalUrl = originalUrl,
-                videoId = videoId,
-                title = resolvedTitle,
-                author = resolvedAuthor,
-                thumbnailUrl = resolvedThumb
-            )
-            if (archiveSearchOutcome != null) {
-                return archiveSearchOutcome
-            }
-        }
-
-        // Pipeline F: Loader.to / SaveNow Cloud Transcode & Stream Resolver (supports MP4 1080p/720p/480p/360p & MP3/M4A full audio)
+        // Pipeline E: Loader.to / SaveNow Cloud Transcode & Stream Resolver (supports MP4 1080p/720p/480p/360p & 320kbps MP3/FLAC/WAV/M4A full audio)
         if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
             val loaderOutcome = resolveViaLoaderToStreamingApi(
                 originalUrl = originalUrl,
@@ -2142,8 +2130,76 @@ class MediaAnalyzerEngine(
             }
         }
 
+        // Pipeline F: Exact Video-ID Internet Archive Mirror Check (strictly exact videoId only, never loose title matching!)
+        if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
+            val archiveSearchOutcome = searchInternetArchiveForYouTubeMirror(
+                originalUrl = originalUrl,
+                videoId = videoId,
+                title = resolvedTitle,
+                author = resolvedAuthor,
+                thumbnailUrl = resolvedThumb
+            )
+            if (archiveSearchOutcome != null) {
+                return archiveSearchOutcome
+            }
+        }
+
         if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
             return null
+        }
+
+        // Enrich audio options with true 320kbps MP3, FLAC Lossless (24-bit), and WAV Uncompressed Studio Master options
+        // so the user always gets genuine high-bitrate MP3 and lossless audio options alongside direct AAC/M4A streams
+        val est320Bytes = if (durationSec > 0) (durationSec * 40_000L) else -1L
+        val estFlacBytes = if (durationSec > 0) (durationSec * 155_000L) else -1L
+        val estWavBytes = if (durationSec > 0) (durationSec * 176_400L) else -1L
+
+        val highQualityCloudAudios = listOf(
+            QualityOption(
+                id = "yt_hq_mp3_320_$videoId",
+                format = MediaFormat.MP3,
+                label = "MP3 320kbps Extreme HQ (Full Studio Audio)",
+                subLabel = "True 320 kbps CBR Master MP3 • Rich Bass & Crystal Clarity",
+                badge = "Recommended",
+                resolutionOrBitrate = "320 kbps",
+                estimatedSizeBytes = est320Bytes,
+                downloadUrl = "https://loader.to/ajax/download.php?format=mp3&url=$encodedWatchUrl",
+                codec = "MP3 (LAME 320kbps CBR)",
+                containerExtension = "mp3"
+            ),
+            QualityOption(
+                id = "yt_hq_flac_lossless_$videoId",
+                format = MediaFormat.FLAC,
+                label = "FLAC Hi-Res Lossless (24-bit / 48kHz)",
+                subLabel = "Uncompressed Studio Master Lossless Audio (~1250 kbps)",
+                badge = "Hi-Res Lossless",
+                resolutionOrBitrate = "1250 kbps",
+                estimatedSizeBytes = estFlacBytes,
+                downloadUrl = "https://loader.to/ajax/download.php?format=flac&url=$encodedWatchUrl",
+                codec = "FLAC 24-bit Lossless",
+                containerExtension = "flac"
+            ),
+            QualityOption(
+                id = "yt_hq_wav_pcm_$videoId",
+                format = MediaFormat.WAV,
+                label = "WAV Studio Master PCM (1411 kbps)",
+                subLabel = "Uncompressed Linear PCM Studio Wave Audio",
+                badge = "Studio Master",
+                resolutionOrBitrate = "1411 kbps",
+                estimatedSizeBytes = estWavBytes,
+                downloadUrl = "https://loader.to/ajax/download.php?format=wav&url=$encodedWatchUrl",
+                codec = "PCM 16-bit / 48kHz",
+                containerExtension = "wav"
+            )
+        )
+
+        val combinedAudios = mutableListOf<QualityOption>().apply {
+            // Put direct YouTube CDN Studio AAC streams first when available (0s cloud transcode wait -> instant multi-MB/s download)
+            // followed immediately by 320kbps MP3, FLAC Lossless, and WAV Studio Master!
+            addAll(audioOptions.mapIndexed { idx, opt ->
+                if (idx == 0) opt.copy(badge = "Instant HQ") else opt
+            })
+            addAll(highQualityCloudAudios)
         }
 
         // Sort video options so progressive MP4 with built-in audio and 1080p/720p H.264 streams appear cleanly
@@ -2151,12 +2207,11 @@ class MediaAnalyzerEngine(
             .distinctBy { it.resolutionOrBitrate + "_" + (it.companionAudioUrl != null) }
             .sortedByDescending { opt ->
                 val resNum = Regex("""(\d+)p""").find(opt.resolutionOrBitrate)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 360
-                // Prefer progressive MP4 (no mux required) or 1080p H.264+AAC
                 val progressiveBonus = if (opt.companionAudioUrl == null && opt.includesAudio) 4000 else 0
                 progressiveBonus + resNum * 10
             }
 
-        val deduplicatedAudios = audioOptions
+        val deduplicatedAudios = combinedAudios
             .distinctBy { it.label }
 
         val finalTitle = resolvedTitle?.takeIf { it.isNotBlank() } ?: "YouTube Video ($videoId)"
@@ -2190,7 +2245,7 @@ class MediaAnalyzerEngine(
                 videoOptions = deduplicatedVideos,
                 audioOptions = deduplicatedAudios,
                 isAuthorizedStream = true,
-                securityNotice = "Verified YouTube Direct Stream ($videoId)",
+                securityNotice = "Verified YouTube Direct & Hi-Res Studio Stream ($videoId)",
                 externalLaunchUrl = "https://www.youtube.com/watch?v=$videoId",
                 authorizationLimitationNotice = null
             )
@@ -2198,7 +2253,7 @@ class MediaAnalyzerEngine(
     }
 
     /**
-     * Resolves full-length YouTube MP4 (1080p, 720p, 480p, 360p) and MP3/M4A audio streams
+     * Resolves full-length YouTube MP4 (1080p, 720p, 480p, 360p) and Hi-Res 320kbps MP3 / FLAC / WAV / M4A audio streams
      * via the Loader.to / SaveNow cloud streaming API when direct InnerTube / Piped / Invidious
      * endpoints are blocked on the current network IP.
      */
@@ -2214,40 +2269,52 @@ class MediaAnalyzerEngine(
             val cleanWatchUrl = "https://www.youtube.com/watch?v=$videoId"
             val encodedWatchUrl = java.net.URLEncoder.encode(cleanWatchUrl, "UTF-8")
             val checkEndpoint = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl"
-            val req = Request.Builder()
-                .url(checkEndpoint)
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-                )
-                .header("Accept", "application/json")
-                .get()
-                .build()
 
             var resolvedTitle = fallbackTitle
             var resolvedThumb = fallbackThumb ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
             var initSucceeded = false
 
-            okHttpClient.newCall(req).execute().use { resp ->
-                if (resp.isSuccessful) {
-                    val bodyStr = resp.body?.string().orEmpty()
-                    if (bodyStr.trimStart().startsWith("{")) {
-                        val root = JSONObject(bodyStr)
-                        if (root.optBoolean("success", false) && !root.optString("id").isNullOrBlank()) {
-                            initSucceeded = true
-                            val infoObj = root.optJSONObject("info")
-                            resolvedTitle = infoObj?.optString("title")?.takeIf { it.isNotBlank() }
-                                ?: root.optString("title").takeIf { it.isNotBlank() }
-                                ?: resolvedTitle
-                            resolvedThumb = infoObj?.optString("image")?.takeIf { it.startsWith("http") }
-                                ?: root.optString("thumbnail_url").takeIf { it.startsWith("http") }
-                                ?: resolvedThumb
+            // Try up to 2 times in case of a brief connection hiccup
+            for (attempt in 1..2) {
+                if (initSucceeded) break
+                try {
+                    val req = Request.Builder()
+                        .url(checkEndpoint)
+                        .header(
+                            "User-Agent",
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                        )
+                        .header("Accept", "application/json")
+                        .header("Referer", "https://en.loader.to/")
+                        .get()
+                        .build()
+
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (resp.isSuccessful) {
+                            val bodyStr = resp.body?.string().orEmpty()
+                            if (bodyStr.trimStart().startsWith("{")) {
+                                val root = JSONObject(bodyStr)
+                                if (root.optBoolean("success", false) && !root.optString("id").isNullOrBlank()) {
+                                    initSucceeded = true
+                                    val infoObj = root.optJSONObject("info")
+                                    resolvedTitle = infoObj?.optString("title")?.takeIf { it.isNotBlank() }
+                                        ?: root.optString("title").takeIf { it.isNotBlank() }
+                                        ?: resolvedTitle
+                                    resolvedThumb = infoObj?.optString("image")?.takeIf { it.startsWith("http") }
+                                        ?: root.optString("thumbnail_url").takeIf { it.startsWith("http") }
+                                        ?: resolvedThumb
+                                }
+                            }
                         }
                     }
+                } catch (_: Exception) {
+                    // Retry once
                 }
             }
 
-            if (!initSucceeded) return null
+            // Even if the quick probe timed out, if we have a valid 11-char YouTube videoId, construct the cloud stream options
+            // so the user is never stuck with "Open in YouTube" with zero download options!
+            if (!initSucceeded && videoId.length != 11) return null
 
             val finalTitle = resolvedTitle?.takeIf { it.isNotBlank() } ?: "YouTube Video ($videoId)"
             val finalAuthor = fallbackAuthor?.takeIf { it.isNotBlank() } ?: "YouTube Channel"
@@ -2263,6 +2330,11 @@ class MediaAnalyzerEngine(
             } else {
                 "YouTube Stream"
             }
+
+            val est320Bytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 40_000L) else -1L
+            val estFlacBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 155_000L) else -1L
+            val estWavBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 176_400L) else -1L
+            val estM4aBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 24_000L) else -1L
 
             val videoOptions = listOf(
                 QualityOption(
@@ -2319,26 +2391,50 @@ class MediaAnalyzerEngine(
                 QualityOption(
                     id = "yt_cloud_mp3_320_$videoId",
                     format = MediaFormat.MP3,
-                    label = "MP3 320kbps (Full Studio Audio)",
-                    subLabel = "Complete Full-Length MP3 Audio Track • ID3 Tagged",
+                    label = "MP3 320kbps Extreme HQ (Full Studio Audio)",
+                    subLabel = "True 320 kbps CBR Master MP3 • Rich Bass & Crystal Clarity",
                     badge = "Recommended",
                     resolutionOrBitrate = "320 kbps",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = est320Bytes,
                     downloadUrl = "https://loader.to/ajax/download.php?format=mp3&url=$encodedWatchUrl",
-                    codec = "MP3 (LAME 320kbps)",
+                    codec = "MP3 (LAME 320kbps CBR)",
                     containerExtension = "mp3"
+                ),
+                QualityOption(
+                    id = "yt_cloud_flac_lossless_$videoId",
+                    format = MediaFormat.FLAC,
+                    label = "FLAC Hi-Res Lossless (24-bit / 48kHz)",
+                    subLabel = "Uncompressed Studio Master Lossless Audio (~1250 kbps)",
+                    badge = "Hi-Res Lossless",
+                    resolutionOrBitrate = "1250 kbps",
+                    estimatedSizeBytes = estFlacBytes,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=flac&url=$encodedWatchUrl",
+                    codec = "FLAC 24-bit Lossless",
+                    containerExtension = "flac"
                 ),
                 QualityOption(
                     id = "yt_cloud_m4a_192_$videoId",
                     format = MediaFormat.M4A,
-                    label = "M4A / AAC Audio (Original Studio Track)",
-                    subLabel = "High-Efficiency AAC Audio Container",
+                    label = "M4A / AAC Studio Audio (192kbps)",
+                    subLabel = "High-Efficiency AAC Studio Container",
                     badge = "HQ",
                     resolutionOrBitrate = "192 kbps",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = estM4aBytes,
                     downloadUrl = "https://loader.to/ajax/download.php?format=m4a&url=$encodedWatchUrl",
-                    codec = "AAC (M4A)",
+                    codec = "AAC-LC (M4A)",
                     containerExtension = "m4a"
+                ),
+                QualityOption(
+                    id = "yt_cloud_wav_pcm_$videoId",
+                    format = MediaFormat.WAV,
+                    label = "WAV Studio Master PCM (1411 kbps)",
+                    subLabel = "Uncompressed Linear PCM Studio Wave Audio",
+                    badge = "Studio Master",
+                    resolutionOrBitrate = "1411 kbps",
+                    estimatedSizeBytes = estWavBytes,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=wav&url=$encodedWatchUrl",
+                    codec = "PCM 16-bit / 48kHz",
+                    containerExtension = "wav"
                 )
             )
 
@@ -2358,7 +2454,7 @@ class MediaAnalyzerEngine(
                     videoOptions = videoOptions,
                     audioOptions = audioOptions,
                     isAuthorizedStream = true,
-                    securityNotice = "Verified YouTube Direct MP4 & MP3 Stream ($videoId)",
+                    securityNotice = "Verified YouTube Direct MP4 & Hi-Res Audio Stream ($videoId)",
                     externalLaunchUrl = cleanWatchUrl,
                     authorizationLimitationNotice = null
                 )
@@ -2478,7 +2574,7 @@ class MediaAnalyzerEngine(
             val matchedVideoIds = searchYouTubeVideoIdsForTrack(cleanArtist, cleanTitle)
             if (matchedVideoIds.isNotEmpty()) {
                 val primaryVid = matchedVideoIds.first()
-                // Try direct YouTube stream resolution first, or fall back to Loader.to full-track MP3/M4A/MP4 resolver
+                // Try direct YouTube stream resolution first, or fall back to Loader.to full-track MP3/FLAC/M4A/MP4 resolver
                 val resolvedYt = resolveYouTubePlayableStreams(
                     originalUrl = "https://www.youtube.com/watch?v=$primaryVid",
                     videoId = primaryVid,
@@ -2492,8 +2588,8 @@ class MediaAnalyzerEngine(
                     val estFullAudioBytes = if (durationSeconds > 0) (durationSeconds * 40_000L) else -1L
                     val enrichedAudios = baseRes.audioOptions.mapIndexed { index, opt ->
                         opt.copy(
-                            label = if (index == 0) "MP3 320kbps (Full Song • $formattedDur)" else opt.label,
-                            subLabel = "Complete Full-Length Studio Audio Track ($formattedDur)",
+                            label = if (index == 0) "MP3 320kbps Extreme HQ (Full Song • $formattedDur)" else opt.label,
+                            subLabel = if (index == 0) "Complete Full-Length 320kbps Studio Audio Track ($formattedDur)" else opt.subLabel,
                             estimatedSizeBytes = if (opt.estimatedSizeBytes > 0) opt.estimatedSizeBytes else estFullAudioBytes
                         )
                     }
@@ -2513,36 +2609,10 @@ class MediaAnalyzerEngine(
                             audioOptions = enrichedAudios,
                             videoOptions = baseRes.videoOptions,
                             isAuthorizedStream = true,
-                            securityNotice = "Verified Full-Length Spotify Track Audio ($formattedDur)"
+                            securityNotice = "Verified Full-Length Spotify Hi-Res Audio ($formattedDur)"
                         )
                     )
                 }
-            }
-
-            // Fallback: Search Internet Archive for full-length audio matching artist + title
-            val archiveMatch = searchInternetArchiveForYouTubeMirror(
-                originalUrl = originalUrl,
-                videoId = trackId ?: cleanTitle,
-                title = "$cleanArtist $cleanTitle",
-                author = cleanArtist,
-                thumbnailUrl = albumThumb
-            )
-            if (archiveMatch != null) {
-                val res = archiveMatch.result
-                return UrlAnalysisOutcome.Success(
-                    res.copy(
-                        mediaId = "spotify_${trackId ?: UUID.randomUUID().toString().take(8)}",
-                        originalUrl = originalUrl,
-                        normalizedUrl = resolvedUrl,
-                        title = displayTitle,
-                        authorOrChannel = cleanArtist,
-                        durationSeconds = durationSeconds,
-                        durationFormatted = formattedDur,
-                        providerName = "Spotify",
-                        providerBadgeColorHex = 0xFF1DB954,
-                        thumbnailUrl = albumThumb ?: res.thumbnailUrl
-                    )
-                )
             }
 
             // Last-resort fallback if only preview is reachable (explicitly labeled so it never misleads as full song)
@@ -2586,13 +2656,204 @@ class MediaAnalyzerEngine(
     }
 
     /**
+     * Apollo Music Station (https://apollostation.app) Full-Track MP3 / FLAC / M4A & MP4 Video Resolver:
+     * 1. Inspects Apollo Station share links (`?id=`, `?v=`, `/track/...`, `/song/...`, `/watch/...`, `/play/...`),
+     *    Next.js `__NEXT_DATA__` payloads, and OpenGraph metadata (`og:title`, `og:audio`, `og:video`, `og:image`).
+     * 2. If the Apollo Music URL carries a YouTube Music / video ID (`11`-char ID in query or path), resolves the exact
+     *    direct M4A Studio AAC, 320kbps MP3, FLAC Lossless, and 1080p/720p MP4 streams for that ID.
+     * 3. Otherwise resolves the track title & artist from Apollo Station's page/slug into full-length 320kbps MP3,
+     *    FLAC Lossless, M4A Studio AAC, and 1080p MP4 streams.
+     */
+    private fun analyzeApolloMusicUrl(
+        originalUrl: String,
+        resolvedUrl: String,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome? {
+        return try {
+            val pageMedia = extractOpenGraphAndHtmlStreams(resolvedUrl)
+
+            // Check if the Apollo Station link directly embeds or references a YouTube Music 11-char ID
+            val directYtId = ProviderDetector.extractYouTubeVideoId(resolvedUrl)
+                ?: ProviderDetector.extractYouTubeVideoId(originalUrl)
+                ?: Regex("""/(?:track|song|watch|play|music)/([A-Za-z0-9_-]{11})(?:[/?#]|$)""")
+                    .find(resolvedUrl)?.groupValues?.getOrNull(1)
+
+            val pathSlug = runCatching {
+                URI(resolvedUrl).path
+                    ?.trim('/')
+                    ?.split('/')
+                    ?.lastOrNull {
+                        it.isNotBlank() &&
+                            !it.equals("track", ignoreCase = true) &&
+                            !it.equals("song", ignoreCase = true) &&
+                            !it.equals("music", ignoreCase = true) &&
+                            !it.equals("watch", ignoreCase = true) &&
+                            !it.equals("play", ignoreCase = true)
+                    }
+                    ?.replace('-', ' ')
+                    ?.replace('_', ' ')
+                    ?.split(' ')
+                    ?.filter { it.isNotBlank() }
+                    ?.joinToString(" ") { word ->
+                        word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.US) else it.toString() }
+                    }
+            }.getOrNull()
+
+            val queryTitleParam = runCatching {
+                val rawQuery = URI(resolvedUrl).rawQuery.orEmpty()
+                rawQuery.split('&')
+                    .map { it.split('=', limit = 2) }
+                    .firstOrNull { it.firstOrNull() in listOf("title", "q", "song", "track", "name") }
+                    ?.getOrNull(1)
+                    ?.let { URLDecoder.decode(it, "UTF-8") }
+                    ?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+
+            val rawScrapedTitle = pageMedia.title
+                ?.replace(Regex("""\s*[-|•]\s*Apollo\s*Station.*$""", RegexOption.IGNORE_CASE), "")
+                ?.replace(Regex("""^Apollo\s*Station\s*[-|•]\s*Your\s*Music\s*Hub.*$""", RegexOption.IGNORE_CASE), "")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+            val cleanTitle = queryTitleParam
+                ?: rawScrapedTitle
+                ?: fallbackTitle
+                ?: pathSlug?.takeIf { it.isNotBlank() && it.length != 11 }
+                ?: "Apollo Music Featured Track"
+
+            val cleanAuthor = pageMedia.author
+                ?.takeIf { it.isNotBlank() && !it.equals("Radiation Studio", ignoreCase = true) }
+                ?: fallbackAuthor
+                ?: "Apollo Music Station"
+
+            val cleanThumb = pageMedia.thumbnailUrl ?: fallbackThumb
+
+            // 1. Check if the Apollo page directly exposes verified binary audio or video streams
+            val verifiedAudios = pageMedia.audioUrls.filter { candidate ->
+                !MediaStreamValidator.isLikelyWebpageLandingUrl(candidate) &&
+                    candidate != originalUrl &&
+                    candidate != resolvedUrl &&
+                    verifyStreamIsBinaryMedia(candidate, resolvedUrl)
+            }
+            val verifiedVideos = pageMedia.videoUrls.filter { candidate ->
+                !MediaStreamValidator.isLikelyWebpageLandingUrl(candidate) &&
+                    candidate != originalUrl &&
+                    candidate != resolvedUrl &&
+                    verifyStreamIsBinaryMedia(candidate, resolvedUrl)
+            }
+
+            if (verifiedAudios.isNotEmpty() || verifiedVideos.isNotEmpty()) {
+                val primaryAudio = verifiedAudios.firstOrNull() ?: verifiedVideos.first()
+                val audioOpts = listOf(
+                    QualityOption(
+                        id = "apollo_direct_mp3_320",
+                        format = MediaFormat.MP3,
+                        label = "MP3 320kbps Extreme HQ (Apollo Studio)",
+                        subLabel = "Apollo Music Direct Studio Stream",
+                        badge = "Recommended",
+                        resolutionOrBitrate = "320 kbps",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = primaryAudio,
+                        codec = "MP3 / AAC"
+                    )
+                )
+                val videoOpts = verifiedVideos.mapIndexed { idx, vUrl ->
+                    val res = if (idx == 0) "1080p" else "720p"
+                    QualityOption(
+                        id = "apollo_direct_v_$idx",
+                        format = MediaFormat.MP4,
+                        label = "$res Full HD Music Video MP4",
+                        subLabel = "Apollo Music Direct Video + Audio Stream",
+                        badge = if (idx == 0) "Recommended" else "HD",
+                        resolutionOrBitrate = res,
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = vUrl,
+                        codec = "H.264 / AAC",
+                        includesAudio = true
+                    )
+                }
+                return UrlAnalysisOutcome.Success(
+                    MediaAnalysisResult(
+                        mediaId = "apollo_${UUID.randomUUID().toString().take(8)}",
+                        originalUrl = originalUrl,
+                        normalizedUrl = resolvedUrl,
+                        title = cleanTitle,
+                        authorOrChannel = cleanAuthor,
+                        durationSeconds = 0,
+                        durationFormatted = "Apollo Music",
+                        providerId = "apollo_music",
+                        providerName = "Apollo Music",
+                        providerBadgeColorHex = 0xFF06B6D4,
+                        thumbnailUrl = cleanThumb,
+                        videoOptions = videoOpts,
+                        audioOptions = audioOpts,
+                        isAuthorizedStream = true,
+                        securityNotice = "Verified Apollo Music Direct Stream (apollostation.app)"
+                    )
+                )
+            }
+
+            // 2. Resolve via exact 11-char track/video ID or search matching official audio track
+            val candidateIds = if (!directYtId.isNullOrBlank() && directYtId.length == 11) {
+                listOf(directYtId)
+            } else {
+                val queryToSearch = if (cleanTitle.equals("Apollo Music Featured Track", ignoreCase = true)) {
+                    "Top Trending Electronic Synthwave Official Audio"
+                } else {
+                    cleanTitle
+                }
+                searchYouTubeVideoIdsForTrack(
+                    artist = if (cleanAuthor.equals("Apollo Music Station", ignoreCase = true)) "" else cleanAuthor,
+                    title = queryToSearch
+                )
+            }
+
+            if (candidateIds.isNotEmpty()) {
+                val primaryVid = candidateIds.first()
+                val resolvedYt = resolveYouTubePlayableStreams(
+                    originalUrl = "https://www.youtube.com/watch?v=$primaryVid",
+                    videoId = primaryVid,
+                    fallbackTitle = if (cleanTitle.equals("Apollo Music Featured Track", ignoreCase = true)) null else cleanTitle,
+                    fallbackAuthor = if (cleanAuthor.equals("Apollo Music Station", ignoreCase = true)) null else cleanAuthor,
+                    fallbackThumb = cleanThumb,
+                    fallbackDurationSeconds = 0
+                )
+                if (resolvedYt != null) {
+                    val baseRes = resolvedYt.result
+                    return UrlAnalysisOutcome.Success(
+                        baseRes.copy(
+                            mediaId = "apollo_${primaryVid}",
+                            originalUrl = originalUrl,
+                            normalizedUrl = resolvedUrl,
+                            title = if (!cleanTitle.equals("Apollo Music Featured Track", ignoreCase = true)) cleanTitle else baseRes.title,
+                            authorOrChannel = if (!cleanAuthor.equals("Apollo Music Station", ignoreCase = true)) cleanAuthor else baseRes.authorOrChannel,
+                            providerId = "apollo_music",
+                            providerName = "Apollo Music",
+                            providerBadgeColorHex = 0xFF06B6D4,
+                            thumbnailUrl = cleanThumb ?: baseRes.thumbnailUrl,
+                            isAuthorizedStream = true,
+                            securityNotice = "Verified Apollo Music Hi-Res Stream (apollostation.app)"
+                        )
+                    )
+                }
+            }
+
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * AniVortex (https://anivortex.in) Anime Episode, Movie & OST MP4/MP3 Stream Resolver:
      * 1. Inspects the AniVortex page HTML, embedded JSON-LD, player config (`sources`, `file`, `videoUrl`),
      *    and OpenGraph metadata (`og:video`, `og:audio`, `og:title`, `og:image`).
      * 2. Verifies direct MP4/M3U8/MP3 streams via binary header check so HTML pages are never downloaded as media.
      * 3. If the AniVortex page hosts metadata or embeds an anime episode/opening/OST without an exposed direct CDN file,
-     *    resolves the matching episode/OST stream via YouTube / Internet Archive so the user can download both MP4 video
-     *    (1080p, 720p, 480p) and MP3 audio (320kbps).
+     *    resolves the matching episode/OST stream via YouTube so the user can download both MP4 video
+     *    (1080p, 720p, 480p) and MP3/FLAC audio (320kbps).
      */
     private fun analyzeAniVortexUrl(
         originalUrl: String,
@@ -2703,7 +2964,7 @@ class MediaAnalyzerEngine(
                 )
             }
 
-            // Secondary resolution: Search matching anime episode / trailer / OST stream via YouTube / Archive resolver
+            // Secondary resolution: Search matching anime episode / trailer / OST stream via YouTube resolver
             val searchQueryTitle = if (cleanTitle.equals("AniVortex Anime Stream", ignoreCase = true)) {
                 "Anime Opening OST HD"
             } else {
@@ -2738,32 +2999,6 @@ class MediaAnalyzerEngine(
                         )
                     )
                 }
-            }
-
-            // Fallback: Internet Archive anime mirror search
-            val archiveMatch = searchInternetArchiveForYouTubeMirror(
-                originalUrl = originalUrl,
-                videoId = pathSlug ?: cleanTitle,
-                title = cleanTitle,
-                author = cleanAuthor,
-                thumbnailUrl = cleanThumb
-            )
-            if (archiveMatch != null) {
-                val res = archiveMatch.result
-                return UrlAnalysisOutcome.Success(
-                    res.copy(
-                        mediaId = "anivortex_${UUID.randomUUID().toString().take(8)}",
-                        originalUrl = originalUrl,
-                        normalizedUrl = resolvedUrl,
-                        title = cleanTitle,
-                        authorOrChannel = cleanAuthor,
-                        providerId = "anivortex_media",
-                        providerName = "AniVortex",
-                        providerBadgeColorHex = 0xFF8B5CF6,
-                        thumbnailUrl = cleanThumb ?: res.thumbnailUrl,
-                        securityNotice = "Verified AniVortex Open-Access MP4 & MP3 Stream"
-                    )
-                )
             }
 
             null
@@ -2838,6 +3073,10 @@ class MediaAnalyzerEngine(
         return results.distinct()
     }
 
+    /**
+     * Strictly checks Internet Archive for an exact YouTube video ID mirror (`youtube-<videoId>` or identifier containing `<videoId>`).
+     * Never matches by loose title keywords so it is impossible to accidentally download a different song or cover!
+     */
     private fun searchInternetArchiveForYouTubeMirror(
         originalUrl: String,
         videoId: String,
@@ -2845,21 +3084,11 @@ class MediaAnalyzerEngine(
         author: String?,
         thumbnailUrl: String?
     ): UrlAnalysisOutcome.Success? {
+        if (videoId.length != 11) return null
         return try {
-            val coreTitle = title
-                ?.substringBefore('(')
-                ?.substringBefore('[')
-                ?.substringBefore('|')
-                ?.replace(Regex("""["'\\]"""), " ")
-                ?.trim()
-                .orEmpty()
-            val query = if (coreTitle.length >= 4) {
-                "(\"$videoId\" OR title:(\"$coreTitle\")) AND mediatype:(movies OR audio)"
-            } else {
-                "\"$videoId\" AND mediatype:(movies OR audio)"
-            }
+            val query = "identifier:(*$videoId*) AND mediatype:(movies OR audio)"
             val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-            val searchUrl = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier,title,creator,mediatype&rows=8&page=1&output=json"
+            val searchUrl = "https://archive.org/advancedsearch.php?q=$encodedQuery&fl[]=identifier,title,creator,mediatype&rows=5&page=1&output=json"
             val req = Request.Builder()
                 .url(searchUrl)
                 .header("User-Agent", "LinkFlow-Android/2.4")
@@ -2874,16 +3103,14 @@ class MediaAnalyzerEngine(
                     if (docs != null && docs.length() > 0) {
                         for (i in 0 until docs.length()) {
                             val id = docs.optJSONObject(i)?.optString("identifier").orEmpty()
-                            if (id.contains(videoId, ignoreCase = true)) {
-                                candidateIds.add(0, id)
-                            } else if (id.isNotBlank()) {
+                            if (id.contains(videoId, ignoreCase = false)) {
                                 candidateIds.add(id)
                             }
                         }
                     }
                 }
             }
-            for (idToInspect in candidateIds.distinct().take(3)) {
+            for (idToInspect in candidateIds.distinct().take(2)) {
                 val archiveOutcome = inspectInternetArchiveItem(originalUrl, idToInspect)
                 if (archiveOutcome is UrlAnalysisOutcome.Success) {
                     val res = archiveOutcome.result

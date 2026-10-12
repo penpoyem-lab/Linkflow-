@@ -555,6 +555,20 @@ fun HomeScreen(
                                     }
                                 )
                             }
+                            item(key = "APOLLO_MUSIC") {
+                                SocialPlatformCircle(
+                                    label = "Apollo Music",
+                                    platformType = "APOLLO_MUSIC",
+                                    onClick = {
+                                        if (uiState.urlInput.isBlank()) {
+                                            onUrlChange("https://apollostation.app/")
+                                            onShowToast("Apollo Music (apollostation.app) Hi-Res MP3/FLAC & MP4 ready — paste any track link")
+                                        } else {
+                                            onShowSupportedSources()
+                                        }
+                                    }
+                                )
+                            }
                             item(key = "ANIVORTEX") {
                                 SocialPlatformCircle(
                                     label = "AniVortex",
@@ -578,7 +592,7 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Swipe left for Spotify & AniVortex (MP3 / MP4)",
+                                text = "Swipe left for Spotify, Apollo Music & AniVortex",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontSize = 11.sp
                                 ),
@@ -817,6 +831,11 @@ private fun SocialPlatformCircle(
                     colors = listOf(Color(0xFF1ED760), Color(0xFF1DB954), Color(0xFF128C3F))
                 )
             )
+            "APOLLO_MUSIC" -> Modifier.background(
+                Brush.linearGradient(
+                    colors = listOf(Color(0xFF06B6D4), Color(0xFF3B82F6), Color(0xFF6366F1))
+                )
+            )
             "ANIVORTEX" -> Modifier.background(
                 Brush.linearGradient(
                     colors = listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9), Color(0xFF4F46E5))
@@ -964,6 +983,37 @@ private fun SocialPlatformCircle(
                             path = botArc,
                             color = Color.White,
                             style = Stroke(width = 2.1.dp.toPx(), cap = StrokeCap.Round)
+                        )
+                    }
+                    "APOLLO_MUSIC" -> {
+                        // Stylized Orbital Ring + Musical A/Note Emblem for Apollo Music Station (apollostation.app)
+                        val stroke = 2.2.dp.toPx()
+                        drawArc(
+                            color = Color.White.copy(alpha = 0.90f),
+                            startAngle = 150f,
+                            sweepAngle = 240f,
+                            useCenter = false,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                        // Note stem + head inside orbital ring
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(w * 0.58f, h * 0.24f),
+                            end = Offset(w * 0.58f, h * 0.66f),
+                            strokeWidth = 2.5.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawLine(
+                            color = Color.White,
+                            start = Offset(w * 0.58f, h * 0.24f),
+                            end = Offset(w * 0.76f, h * 0.32f),
+                            strokeWidth = 2.5.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = w * 0.13f,
+                            center = Offset(w * 0.46f, h * 0.66f)
                         )
                     }
                     "ANIVORTEX" -> {
@@ -1239,8 +1289,15 @@ private fun AnalyzedMediaPreviewCard(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 if (hasDownloadableOptions) {
+                    val quickButtonLabel = when (selectedFormat) {
+                        MediaFormat.MP3 -> "Download MP3 320kbps"
+                        MediaFormat.FLAC -> "Download FLAC Lossless"
+                        MediaFormat.M4A -> "Download M4A Studio"
+                        MediaFormat.WAV -> "Download WAV Master"
+                        else -> "Download ${selectedFormat.name} HD"
+                    }
                     LiquidGlassPrimaryButton(
-                        text = "Download ${selectedFormat.name} Now",
+                        text = quickButtonLabel,
                         icon = Icons.Default.Download,
                         onClick = onQuickDownload,
                         cornerRadius = 16.dp,

@@ -35,6 +35,7 @@ enum class DetectedProviderType(
     INTERNET_ARCHIVE("internet_archive", "Internet Archive", 0xFF2563EB),
     WIKIMEDIA("wikimedia", "Wikimedia Commons", 0xFF10B981),
     ANIVORTEX("anivortex", "AniVortex", 0xFF8B5CF6),
+    APOLLO_MUSIC("apollo_music", "Apollo Music", 0xFF06B6D4),
     DIRECT_MEDIA("direct_media", "Direct Media", 0xFF10B981),
     GENERIC_WEBPAGE("generic_webpage", "Web Media", 0xFF6366F1)
 }
@@ -61,6 +62,8 @@ object ProviderDetector {
             host.contains("vimeo.com") -> DetectedProviderType.VIMEO
             host.contains("spotify.com") || host.contains("spotify.link") ||
                 host.contains("spoti.fi") -> DetectedProviderType.SPOTIFY
+            host.contains("apollostation.app") || host.contains("apollostation") ||
+                host.contains("apollomusic") -> DetectedProviderType.APOLLO_MUSIC
             host.contains("anivortex.in") || host.contains("anivortex.com") ||
                 host.contains("anivortex") -> DetectedProviderType.ANIVORTEX
             host.contains("soundcloud.com") -> DetectedProviderType.SOUNDCLOUD
@@ -74,8 +77,8 @@ object ProviderDetector {
             host.contains("archive.org") -> DetectedProviderType.INTERNET_ARCHIVE
             host.contains("wikimedia.org") -> DetectedProviderType.WIKIMEDIA
             path.endsWith(".mp4") || path.endsWith(".mp3") || path.endsWith(".m4a") ||
-                path.endsWith(".webm") || path.endsWith(".wav") || path.endsWith(".ogg") ||
-                path.endsWith(".m3u8") -> DetectedProviderType.DIRECT_MEDIA
+                path.endsWith(".flac") || path.endsWith(".webm") || path.endsWith(".wav") ||
+                path.endsWith(".ogg") || path.endsWith(".m3u8") -> DetectedProviderType.DIRECT_MEDIA
             else -> DetectedProviderType.GENERIC_WEBPAGE
         }
     }
@@ -100,7 +103,7 @@ object ProviderDetector {
                     val query = uri.rawQuery.orEmpty()
                     query.split('&')
                         .map { it.split('=', limit = 2) }
-                        .firstOrNull { it.firstOrNull() == "v" || it.firstOrNull() == "video_id" }
+                        .firstOrNull { it.firstOrNull() == "v" || it.firstOrNull() == "video_id" || it.firstOrNull() == "id" }
                         ?.getOrNull(1)
                 }
             }?.trim()
@@ -139,6 +142,7 @@ object MediaStreamValidator {
         "facebook.com", "fb.watch", "fb.com",
         "reddit.com", "redd.it", "rxddit.com",
         "spotify.com", "spotify.link", "spoti.fi",
+        "apollostation.app",
         "anivortex.in", "anivortex.com",
         "threads.net", "pinterest.com", "pin.it"
     )
@@ -151,6 +155,7 @@ object MediaStreamValidator {
         Regex("""youtube\.com/(?:watch|shorts|embed|live)""", RegexOption.IGNORE_CASE),
         Regex("""youtu\.be/[A-Za-z0-9_-]+""", RegexOption.IGNORE_CASE),
         Regex("""open\.spotify\.com/(?:track|album|playlist|episode|embed)/""", RegexOption.IGNORE_CASE),
+        Regex("""apollostation\.app/(?:track|song|music|watch|play|playlist|album)/""", RegexOption.IGNORE_CASE),
         Regex("""anivortex\.(?:in|com)/(?:watch|anime|episode|series|movie)/""", RegexOption.IGNORE_CASE),
         Regex("""facebook\.com/(?:share|reel|watch|[^/]+/videos)/""", RegexOption.IGNORE_CASE),
         Regex("""fb\.watch/""", RegexOption.IGNORE_CASE)
@@ -163,7 +168,8 @@ object MediaStreamValidator {
         val clean = url.substringBefore('?').trim()
         val lower = clean.lowercase()
         if (lower.endsWith(".mp4") || lower.endsWith(".mp3") || lower.endsWith(".m4a") ||
-            lower.endsWith(".webm") || lower.endsWith(".m3u8") || lower.contains("googlevideo.com") ||
+            lower.endsWith(".flac") || lower.endsWith(".wav") || lower.endsWith(".webm") ||
+            lower.endsWith(".m3u8") || lower.contains("googlevideo.com") ||
             lower.contains("cdninstagram.com") || lower.contains("fbcdn.net") ||
             lower.contains("twimg.com") || lower.contains("tikwm.com") ||
             lower.contains("v.redd.it") || lower.contains("loader.to/ajax/download.php") ||
@@ -196,7 +202,7 @@ object MediaStreamValidator {
 
     /**
      * Inspects the first bytes of a downloaded file to verify it is a genuine binary media container
-     * (e.g., ISO Base Media / MP4 `ftyp`, ID3 / ADTS MP3, Ogg, WebM/Matroska, RIFF WAV, or HLS segment)
+     * (e.g., ISO Base Media / MP4 `ftyp`, ID3 / ADTS MP3, FLAC `fLaC`, Ogg, WebM/Matroska, RIFF WAV, or HLS segment)
      * and NOT an HTML webpage, login wall, rate-limit page, or JSON error payload.
      */
     fun validateDownloadedMediaFile(file: File): MediaFileValidationResult {
@@ -243,13 +249,18 @@ object MediaStreamValidator {
                 )
             }
 
-            // Inspect binary magic signatures (MP4/M4A ftyp, MP3 ID3 or ADTS/MPEG frame sync, WebM EBML, Ogg, WAV RIFF)
+            // Inspect binary magic signatures (MP4/M4A ftyp, MP3 ID3 or ADTS/MPEG frame sync, FLAC fLaC, WebM EBML, Ogg, WAV RIFF)
             val detectedFormat = when {
                 readCount >= 8 &&
                     headerBytes[4] == 'f'.code.toByte() &&
                     headerBytes[5] == 't'.code.toByte() &&
                     headerBytes[6] == 'y'.code.toByte() &&
                     headerBytes[7] == 'p'.code.toByte() -> "MP4/M4A"
+                readCount >= 4 &&
+                    headerBytes[0] == 'f'.code.toByte() &&
+                    headerBytes[1] == 'L'.code.toByte() &&
+                    headerBytes[2] == 'a'.code.toByte() &&
+                    headerBytes[3] == 'C'.code.toByte() -> "FLAC"
                 readCount >= 3 &&
                     headerBytes[0] == 'I'.code.toByte() &&
                     headerBytes[1] == 'D'.code.toByte() &&

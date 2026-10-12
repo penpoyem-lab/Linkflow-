@@ -10,6 +10,7 @@ enum class MediaFormat(
     WEBM("WebM Video", "webm", "video/webm", true),
     MP3("MP3 Audio", "mp3", "audio/mpeg", false),
     M4A("M4A Audio", "m4a", "audio/mp4", false),
+    FLAC("FLAC Lossless", "flac", "audio/flac", false),
     WAV("WAV Audio", "wav", "audio/wav", false)
 }
 
