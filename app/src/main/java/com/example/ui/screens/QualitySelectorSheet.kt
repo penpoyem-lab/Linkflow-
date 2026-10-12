@@ -257,7 +257,7 @@ fun QualitySelectorSheet(
                         item {
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "AUDIO ONLY (MP3)",
+                                text = "AUDIO ONLY (MP3 • FLAC • M4A • WAV)",
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     letterSpacing = 1.6.sp,
                                     fontWeight = FontWeight.SemiBold

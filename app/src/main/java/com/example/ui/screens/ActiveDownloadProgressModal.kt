@@ -178,10 +178,15 @@ fun ActiveDownloadProgressModal(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 18.dp)
             ) {
+                val isAudioTask = task.format.equals("MP3", ignoreCase = true) ||
+                    task.format.equals("FLAC", ignoreCase = true) ||
+                    task.format.equals("WAV", ignoreCase = true) ||
+                    task.format.equals("M4A", ignoreCase = true)
+
                 val headerText = when {
                     isCompleted -> "Download Complete"
                     isFailedOrCancelled -> stateEnum.displayName
-                    task.format == "MP3" -> "Downloading Audio"
+                    isAudioTask -> "Downloading Audio (${task.format})"
                     else -> "Downloading Video"
                 }
 
@@ -201,7 +206,7 @@ fun ActiveDownloadProgressModal(
                     isFailedOrCancelled -> "${task.fileName} • ${task.providerName}"
                     task.totalBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} of ${FormatUtils.formatBytes(task.totalBytes)}"
                     task.downloadedBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} streamed"
-                    else -> "${task.fileName} • Preparing stream…"
+                    else -> "${task.fileName} • Preparing ${task.format} stream…"
                 }
                 Text(
                     text = sizeSubtitle,
@@ -346,7 +351,7 @@ fun ActiveDownloadProgressModal(
                         DownloadJobState.FAILED -> task.errorMessage ?: "Failed"
                         DownloadJobState.CANCELLED -> "Cancelled"
                         DownloadJobState.PROCESSING -> "Finalizing container…"
-                        DownloadJobState.PREPARING, DownloadJobState.ANALYZING -> "Preparing stream…"
+                        DownloadJobState.PREPARING, DownloadJobState.ANALYZING -> "Preparing ${task.format} stream…"
                         else -> "Downloading..."
                     }
 
@@ -403,7 +408,7 @@ fun ActiveDownloadProgressModal(
                             )
                         } else {
                             Icon(
-                                imageVector = if (task.format == "MP3") Icons.Default.AudioFile else Icons.Default.VideoFile,
+                                imageVector = if (task.format != "MP4" && task.format != "WEBM") Icons.Default.AudioFile else Icons.Default.VideoFile,
                                 contentDescription = task.title,
                                 tint = tokens.accentBlue,
                                 modifier = Modifier.size(32.dp)
