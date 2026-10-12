@@ -46,7 +46,7 @@ class ExampleUnitTest {
                     .message("OK")
                     .header("Content-Type", "video/mp4")
                     .header("Content-Length", "8388608")
-                    .body(okhttp3.ResponseBody.create(null, ""))
+                    .body(okhttp3.ResponseBody.create("", null))
                     .build()
             }
             .build()
@@ -89,7 +89,7 @@ class ExampleUnitTest {
                     .code(200)
                     .message("OK")
                     .header("Content-Type", "text/html")
-                    .body(okhttp3.ResponseBody.create(null, htmlBody))
+                    .body(okhttp3.ResponseBody.create(htmlBody, null))
                     .build()
             }
             .build()
@@ -115,7 +115,7 @@ class ExampleUnitTest {
                 val htmlBody = """
                     <html><body>
                     <script>
-                    {"video_dash_manifest":"\u003C?xml version=\"1.0\"?>\u003CMPD>\u003CPeriod>\u003CAdaptationSet>\u003CRepresentation id=\"1v\" bandwidth=\"1109200\" codecs=\"avc1.64001f\" mimeType=\"video/mp4\" FBContentLength=\"6239255\" width=\"1080\" height=\"1920\" FBQualityLabel=\"1080p\">\u003CBaseURL>$dash1080Url\u003C/BaseURL>\u003C/Representation>\u003CRepresentation id=\"2a\" bandwidth=\"61204\" codecs=\"mp4a.40.5\" mimeType=\"audio/mp4\" FBContentLength=\"345213\">\u003CBaseURL>$dashAudioUrl\u003C/BaseURL>\u003C/Representation>\u003C/AdaptationSet>\u003C/Period>\u003C/MPD>","video_versions":[{"type":101,"url":"$progUrl"}],"username":"banksy","accessibility_caption":"Video by Banksy"}
+                    {"video_dash_manifest":"\u003C?xml version=\"1.0\"?>\u003CMPD>\u003CPeriod>\u003CAdaptationSet>\u003CRepresentation id=\"1v\" bandwidth=\"1109200\" codecs=\"avc1.64001f\" mimeType=\"video/mp4\" FBContentLength=\"6239255\" width=\"1080\" height=\"1920\" FBQualityLabel=\"1080p\">\u003CBaseURL>$dash1080Url\u003C/BaseURL>\u003C/Representation>\u003CRepresentation id=\"2a\" bandwidth=\"61204\" codecs=\"mp4a.40.5\" mimeType=\"audio/mp4\" FBContentLength=\"345213\">\u003CBaseURL>$dashAudioUrl\u003C/BaseURL>\u003C/Representation>\u003C/AdaptationSet>\u003CPeriod>\u003C/MPD>","video_versions":[{"type":101,"url":"$progUrl"}],"username":"banksy","accessibility_caption":"Video by Banksy"}
                     </script>
                     </body></html>
                 """.trimIndent()
@@ -125,7 +125,7 @@ class ExampleUnitTest {
                     .code(200)
                     .message("OK")
                     .header("Content-Type", "text/html")
-                    .body(okhttp3.ResponseBody.create(null, htmlBody))
+                    .body(okhttp3.ResponseBody.create(htmlBody, null))
                     .build()
             }
             .build()

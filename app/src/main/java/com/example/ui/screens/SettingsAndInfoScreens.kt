@@ -27,8 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Storage
@@ -587,7 +586,7 @@ fun SettingsScreen(
                             ?: "https://github.com/${preferences.githubRepoSlug}/releases/latest"
                         LiquidGlassPrimaryButton(
                             text = "Download Latest APK",
-                            icon = Icons.Default.OpenInNew,
+                            icon = Icons.AutoMirrored.Filled.OpenInNew,
                             onClick = {
                                 runCatching {
                                     uriHandler.openUri(latestReleaseUrl)

@@ -449,10 +449,16 @@ class MediaAnalyzerEngine(
                     fallbackThumb = fetchedThumb
                 )
             }
+            val isMusicHost = host.contains("music.youtube.com")
+            val isPlaylistOrChannel = path.contains("/playlist") || path.contains("/channel/") || path.contains("/c/") || path.contains("/user/")
             return UrlAnalysisOutcome.Error(
-                title = "Invalid YouTube Link",
-                message = "Could not identify a valid YouTube video ID from '$url'.",
-                recoverySuggestion = "Paste a complete YouTube watch link (youtube.com/watch?v=...), Shorts link, or youtu.be share URL.",
+                title = if (isMusicHost) "YouTube Music Link" else "Invalid YouTube Link",
+                message = if (isPlaylistOrChannel) {
+                    "This YouTube link points to a playlist or channel. Please open the specific song or video and share its link directly."
+                } else {
+                    "Could not identify a valid YouTube track or video ID from '$url'."
+                },
+                recoverySuggestion = "Paste a song link (music.youtube.com/watch?v=...), standard watch link, Shorts link, or youtu.be share URL.",
                 errorCode = "ERR_INVALID_YOUTUBE_URL"
             )
         }
@@ -1752,17 +1758,6 @@ class MediaAnalyzerEngine(
 
         val profiles = listOf(
             YouTubeClientProfile(
-                clientName = "IOS",
-                clientVersion = "20.03.02",
-                clientIdHeader = "5",
-                userAgent = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
-                deviceMake = "Apple",
-                deviceModel = "iPhone16,2",
-                osName = "iPhone",
-                osVersion = "18.2.1.22C161",
-                androidSdkVersion = null
-            ),
-            YouTubeClientProfile(
                 clientName = "ANDROID_VR",
                 clientVersion = "1.60.19",
                 clientIdHeader = "28",
@@ -1772,6 +1767,17 @@ class MediaAnalyzerEngine(
                 osName = "Android",
                 osVersion = "12L",
                 androidSdkVersion = 32
+            ),
+            YouTubeClientProfile(
+                clientName = "IOS",
+                clientVersion = "20.03.02",
+                clientIdHeader = "5",
+                userAgent = "com.google.ios.youtube/20.03.02 (iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X;)",
+                deviceMake = "Apple",
+                deviceModel = "iPhone16,2",
+                osName = "iPhone",
+                osVersion = "18.2.1.22C161",
+                androidSdkVersion = null
             ),
             YouTubeClientProfile(
                 clientName = "ANDROID_TESTSUITE",
@@ -1807,7 +1813,9 @@ class MediaAnalyzerEngine(
 
         // Pipeline A: Native YouTube Player JSON Stream Inspection
         for (profile in profiles) {
-            if (videoOptions.isNotEmpty() && audioOptions.isNotEmpty()) break
+            val hasHdVideo = videoOptions.any { it.resolutionOrBitrate.contains("1080") || it.resolutionOrBitrate.contains("720") }
+            val hasDirectAudio = audioOptions.any { !it.downloadUrl.contains("loader.to") }
+            if (hasHdVideo && hasDirectAudio) break
             try {
                 val clientObj = JSONObject().apply {
                     put("clientName", profile.clientName)
@@ -1922,6 +1930,24 @@ class MediaAnalyzerEngine(
                                 bestCompanionAudioSize = contentLen
                             }
                             val kbps = if (bitrate > 0) (bitrate / 1000).coerceIn(64, 320) else 128
+
+                            // Direct Fast MP3 Studio Audio Option (instant 0-wait download directly from Google Video CDN)
+                            audioOptions.add(
+                                QualityOption(
+                                    id = "yt_aud_mp3_${itag}_$kbps",
+                                    format = MediaFormat.MP3,
+                                    label = "MP3 Master Audio (${kbps}kbps Direct)",
+                                    subLabel = "Direct Studio Audio Stream • Ultra Fast 0-Wait Download",
+                                    badge = "Recommended",
+                                    resolutionOrBitrate = "$kbps kbps",
+                                    estimatedSizeBytes = contentLen,
+                                    downloadUrl = url,
+                                    codec = "AAC / MP3",
+                                    containerExtension = "m4a"
+                                )
+                            )
+
+                            // Direct Fast M4A Studio AAC Option (original uncompressed stream)
                             audioOptions.add(
                                 QualityOption(
                                     id = "yt_aud_m4a_${itag}_$kbps",
@@ -1973,11 +1999,25 @@ class MediaAnalyzerEngine(
                         if (audioOptions.isEmpty()) {
                             audioOptions.add(
                                 QualityOption(
+                                    id = "yt_demux_mp3_$itag",
+                                    format = MediaFormat.MP3,
+                                    label = "MP3 Master Audio (128kbps Direct)",
+                                    subLabel = "Hardware Audio Demux from Progressive MP4",
+                                    badge = "Recommended",
+                                    resolutionOrBitrate = "128 kbps",
+                                    estimatedSizeBytes = if (contentLen > 0) (contentLen * 0.22).toLong() else -1L,
+                                    downloadUrl = url,
+                                    codec = "AAC / MP3",
+                                    requiresAudioExtractionFromVideo = true
+                                )
+                            )
+                            audioOptions.add(
+                                QualityOption(
                                     id = "yt_demux_audio_$itag",
                                     format = MediaFormat.M4A,
                                     label = "M4A Studio AAC (128kbps Direct)",
                                     subLabel = "Hardware Audio Demux from Progressive MP4",
-                                    badge = "HQ",
+                                    badge = "Direct HQ",
                                     resolutionOrBitrate = "128 kbps",
                                     estimatedSizeBytes = if (contentLen > 0) (contentLen * 0.22).toLong() else -1L,
                                     downloadUrl = url,
@@ -2082,17 +2122,18 @@ class MediaAnalyzerEngine(
 
         // Enrich audio & video options with cloud-transcoded streams so even if a direct CDN stream expires later,
         // DownloadQueueManager has non-IP-bound fallback streams ready in the pool!
-        val est320Bytes = if (durationSec > 0) (durationSec * 40_000L) else -1L
-        val estFlacBytes = if (durationSec > 0) (durationSec * 155_000L) else -1L
-        val estWavBytes = if (durationSec > 0) (durationSec * 176_400L) else -1L
+        val effectiveSec = if (durationSec > 0) durationSec else 210
+        val est320Bytes = effectiveSec * 40_000L
+        val estFlacBytes = effectiveSec * 155_000L
+        val estWavBytes = effectiveSec * 176_400L
 
         val highQualityCloudAudios = listOf(
             QualityOption(
                 id = "yt_hq_mp3_320_$videoId",
                 format = MediaFormat.MP3,
-                label = "MP3 320kbps Extreme HQ (Full Studio Audio)",
-                subLabel = "True 320 kbps CBR Master MP3 • Rich Bass & Crystal Clarity",
-                badge = "Recommended",
+                label = "MP3 320kbps Extreme HQ (Cloud Master)",
+                subLabel = "True 320 kbps CBR Master MP3 • Cloud Transcoded",
+                badge = "Cloud 320k",
                 resolutionOrBitrate = "320 kbps",
                 estimatedSizeBytes = est320Bytes,
                 downloadUrl = "https://loader.to/ajax/download.php?format=mp3&url=$encodedWatchUrl",
@@ -2133,7 +2174,7 @@ class MediaAnalyzerEngine(
                 subLabel = "Full-Length Multiplexed MP4 Stream • H.264 + AAC",
                 badge = "1080p HD",
                 resolutionOrBitrate = "1080p",
-                estimatedSizeBytes = -1L,
+                estimatedSizeBytes = effectiveSec * 450_000L,
                 downloadUrl = "https://loader.to/ajax/download.php?format=1080&url=$encodedWatchUrl",
                 codec = "H.264 / AAC",
                 includesAudio = true
@@ -2145,7 +2186,7 @@ class MediaAnalyzerEngine(
                 subLabel = "Direct HD MP4 Stream • Fast Download",
                 badge = "HD",
                 resolutionOrBitrate = "720p",
-                estimatedSizeBytes = -1L,
+                estimatedSizeBytes = effectiveSec * 250_000L,
                 downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl",
                 codec = "H.264 / AAC",
                 includesAudio = true
@@ -2153,9 +2194,7 @@ class MediaAnalyzerEngine(
         )
 
         val combinedAudios = mutableListOf<QualityOption>().apply {
-            addAll(audioOptions.mapIndexed { idx, opt ->
-                if (idx == 0) opt.copy(badge = "Instant HQ") else opt
-            })
+            addAll(audioOptions)
             addAll(highQualityCloudAudios)
         }
 
@@ -2171,8 +2210,14 @@ class MediaAnalyzerEngine(
                 directBonus + progressiveBonus + resNum * 10
             }
 
+        // Direct streams appear FIRST, prioritizing instant direct MP3 and M4A over cloud transcode
         val deduplicatedAudios = combinedAudios
             .distinctBy { it.label }
+            .sortedByDescending { opt ->
+                val directBonus = if (!opt.downloadUrl.contains("loader.to")) 2000 else 0
+                val isMp3Bonus = if (opt.format == MediaFormat.MP3) 100 else 0
+                directBonus + isMp3Bonus
+            }
 
         val finalTitle = resolvedTitle?.takeIf { it.isNotBlank() } ?: "YouTube Video ($videoId)"
         val finalAuthor = resolvedAuthor?.takeIf { it.isNotBlank() } ?: "YouTube Channel"
@@ -2268,10 +2313,11 @@ class MediaAnalyzerEngine(
                 "YouTube Stream"
             }
 
-            val est320Bytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 40_000L) else -1L
-            val estFlacBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 155_000L) else -1L
-            val estWavBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 176_400L) else -1L
-            val estM4aBytes = if (fallbackDurationSeconds > 0) (fallbackDurationSeconds * 24_000L) else -1L
+            val effDuration = if (fallbackDurationSeconds > 0) fallbackDurationSeconds else 210
+            val est320Bytes = effDuration * 40_000L
+            val estFlacBytes = effDuration * 155_000L
+            val estWavBytes = effDuration * 176_400L
+            val estM4aBytes = effDuration * 24_000L
 
             val videoOptions = listOf(
                 QualityOption(
@@ -2281,7 +2327,7 @@ class MediaAnalyzerEngine(
                     subLabel = "Full-Length Multiplexed MP4 Stream • H.264 + AAC",
                     badge = "Recommended",
                     resolutionOrBitrate = "1080p",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = effDuration * 450_000L,
                     downloadUrl = "https://loader.to/ajax/download.php?format=1080&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true
@@ -2293,7 +2339,7 @@ class MediaAnalyzerEngine(
                     subLabel = "Direct HD MP4 Stream • Fast Download",
                     badge = "HD",
                     resolutionOrBitrate = "720p",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = effDuration * 250_000L,
                     downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true
@@ -2305,7 +2351,7 @@ class MediaAnalyzerEngine(
                     subLabel = "Balanced Mobile MP4 Stream",
                     badge = null,
                     resolutionOrBitrate = "480p",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = effDuration * 160_000L,
                     downloadUrl = "https://loader.to/ajax/download.php?format=480&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true
@@ -2317,7 +2363,7 @@ class MediaAnalyzerEngine(
                     subLabel = "Compact MP4 Stream",
                     badge = "Fast",
                     resolutionOrBitrate = "360p",
-                    estimatedSizeBytes = -1L,
+                    estimatedSizeBytes = effDuration * 110_000L,
                     downloadUrl = "https://loader.to/ajax/download.php?format=360&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true

@@ -350,11 +350,20 @@ class LinkFlowViewModel(
         preferredFormat: MediaFormat
     ): QualityOption? {
         return if (!preferredFormat.isVideo) {
-            analysis.audioOptions.firstOrNull { it.format == preferredFormat }
+            // Prioritize direct instant streams over slow loader.to cloud transcode!
+            val matching = analysis.audioOptions.filter { it.format == preferredFormat }
+            matching.firstOrNull { !it.downloadUrl.contains("loader.to") }
+                ?: matching.firstOrNull()
+                ?: analysis.audioOptions.firstOrNull { !it.downloadUrl.contains("loader.to") }
                 ?: analysis.audioOptions.firstOrNull()
                 ?: analysis.videoOptions.firstOrNull()
         } else {
-            analysis.videoOptions.firstOrNull() ?: analysis.audioOptions.firstOrNull()
+            val matching = analysis.videoOptions.filter { it.format == preferredFormat }
+            matching.firstOrNull { !it.downloadUrl.contains("loader.to") }
+                ?: matching.firstOrNull()
+                ?: analysis.videoOptions.firstOrNull { !it.downloadUrl.contains("loader.to") }
+                ?: analysis.videoOptions.firstOrNull()
+                ?: analysis.audioOptions.firstOrNull()
         }
     }
 

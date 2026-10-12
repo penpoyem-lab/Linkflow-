@@ -42,8 +42,14 @@ enum class DetectedProviderType(
 
 object ProviderDetector {
     fun detectProvider(url: String): DetectedProviderType {
-        val host = runCatching { URI(url).host?.lowercase().orEmpty() }.getOrDefault("")
-        val path = runCatching { URI(url).path?.lowercase().orEmpty() }.getOrDefault("")
+        val cleanUrl = url.trim().trim('"', '\'', '<', '>', '(', ')')
+        val normalized = if (cleanUrl.startsWith("http://", ignoreCase = true) || cleanUrl.startsWith("https://", ignoreCase = true)) {
+            cleanUrl
+        } else {
+            "https://$cleanUrl"
+        }
+        val host = runCatching { URI(normalized).host?.lowercase().orEmpty() }.getOrDefault("")
+        val path = runCatching { URI(normalized).path?.lowercase().orEmpty() }.getOrDefault("")
         return when {
             host.contains("instagram.com") || host.contains("instagr.am") ||
                 host.contains("ddinstagram.com") || host.contains("kkinstagram.com") ||
@@ -85,31 +91,57 @@ object ProviderDetector {
 
     /**
      * Accurately extracts the YouTube Video ID from standard watch URLs, mobile m.youtube.com,
-     * music.youtube.com, youtu.be short links, /shorts/, /live/, /embed/, /v/, and share links with ?si=...
+     * music.youtube.com (/watch?v=, /track/, /song/), youtu.be short links, /shorts/, /live/,
+     * /embed/, /v/, playlists, and share links with ?si=...
      */
     fun extractYouTubeVideoId(url: String): String? {
+        val trimmed = url.trim().trim('"', '\'', '<', '>', '(', ')')
+        if (trimmed.isEmpty()) return null
+
         return try {
-            val trimmed = url.trim()
-            val uri = URI(if (trimmed.startsWith("http", ignoreCase = true)) trimmed else "https://$trimmed")
+            val normalized = if (trimmed.startsWith("http://", ignoreCase = true) || trimmed.startsWith("https://", ignoreCase = true)) {
+                trimmed
+            } else {
+                "https://$trimmed"
+            }
+            val uri = URI(normalized)
             val host = uri.host?.lowercase().orEmpty()
             val path = uri.path.orEmpty()
             val candidate = when {
-                host.contains("youtu.be") -> path.trim('/').substringBefore('/').substringBefore('?')
-                path.startsWith("/shorts/") -> path.removePrefix("/shorts/").substringBefore('/').substringBefore('?')
-                path.startsWith("/live/") -> path.removePrefix("/live/").substringBefore('/').substringBefore('?')
-                path.startsWith("/embed/") -> path.removePrefix("/embed/").substringBefore('/').substringBefore('?')
-                path.startsWith("/v/") -> path.removePrefix("/v/").substringBefore('/').substringBefore('?')
+                host.contains("youtu.be") -> path.trim('/').substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/shorts/") -> path.removePrefix("/shorts/").substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/live/") -> path.removePrefix("/live/").substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/embed/") -> path.removePrefix("/embed/").substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/v/") -> path.removePrefix("/v/").substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/track/") -> path.removePrefix("/track/").substringBefore('/').substringBefore('?').substringBefore('#')
+                path.startsWith("/song/") -> path.removePrefix("/song/").substringBefore('/').substringBefore('?').substringBefore('#')
                 else -> {
                     val query = uri.rawQuery.orEmpty()
-                    query.split('&')
-                        .map { it.split('=', limit = 2) }
-                        .firstOrNull { it.firstOrNull() == "v" || it.firstOrNull() == "video_id" || it.firstOrNull() == "id" }
-                        ?.getOrNull(1)
+                    val params = query.split('&').map { it.split('=', limit = 2) }
+                    val vParam = params.firstOrNull { it.firstOrNull() == "v" || it.firstOrNull() == "video_id" || it.firstOrNull() == "id" }?.getOrNull(1)
+                    if (!vParam.isNullOrBlank()) {
+                        vParam.substringBefore('#').substringBefore('&').substringBefore('?')
+                    } else {
+                        // Check if path has /watch/<id>
+                        if (path.startsWith("/watch/")) {
+                            path.removePrefix("/watch/").substringBefore('/').substringBefore('?').substringBefore('#')
+                        } else null
+                    }
                 }
             }?.trim()
-            candidate?.takeIf { it.length in 6..20 && it.all { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '-' } }
+
+            val validCandidate = candidate?.takeIf { it.length in 6..24 && it.all { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '-' } }
+            if (validCandidate != null) {
+                validCandidate
+            } else {
+                // Secondary regex with boundary checking to avoid truncating IDs
+                val fallbackRegex = Regex("""(?:v=|/v/|/shorts/|/embed/|/live/|youtu\.be/|/track/|/song/)([a-zA-Z0-9_-]{6,24})(?:[?&/#\s"']|$)""", RegexOption.IGNORE_CASE)
+                fallbackRegex.find(trimmed)?.groupValues?.getOrNull(1)
+            }
         } catch (_: Exception) {
-            null
+            // Ultimate fallback regex with delimiter checking
+            val fallbackRegex = Regex("""(?:v=|/v/|/shorts/|/embed/|/live/|youtu\.be/|/track/|/song/)([a-zA-Z0-9_-]{6,24})(?:[?&/#\s"']|$)""", RegexOption.IGNORE_CASE)
+            fallbackRegex.find(trimmed)?.groupValues?.getOrNull(1)
         }
     }
 
