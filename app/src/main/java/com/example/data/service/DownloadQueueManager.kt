@@ -21,6 +21,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
@@ -653,6 +654,40 @@ class DownloadQueueManager(
         }
     }
 
+    // Cache resolved Loader.to direct CDN URLs so pre-warmed jobs start downloading in 0ms
+    private val prewarmedLoaderUrlCache = ConcurrentHashMap<String, String>()
+    private val prewarmingJobsInFlight = ConcurrentHashMap<String, kotlinx.coroutines.Deferred<String?>>()
+
+    /**
+     * Pre-warms Loader.to cloud transcode URLs in the background as soon as the user analyzes a link!
+     * By the time the user selects a quality or taps Download, the cloud transcode is already finished (or in progress)
+     * and the direct high-speed CDN URL is cached in [prewarmedLoaderUrlCache].
+     */
+    fun prewarmCloudStreams(urls: List<String>) {
+        urls.filter { it.contains("loader.to/ajax/download.php", ignoreCase = true) }
+            .distinct()
+            .take(3)
+            .forEach { loaderUrl ->
+                if (prewarmedLoaderUrlCache.containsKey(loaderUrl) || prewarmingJobsInFlight.containsKey(loaderUrl)) {
+                    return@forEach
+                }
+                val deferred = scope.async {
+                    try {
+                        val resolved = resolveLoaderToUrlInternal(loaderUrl, task = null)
+                        if (!resolved.isNullOrBlank()) {
+                            prewarmedLoaderUrlCache[loaderUrl] = resolved
+                        }
+                        resolved
+                    } catch (_: Exception) {
+                        null
+                    } finally {
+                        prewarmingJobsInFlight.remove(loaderUrl)
+                    }
+                }
+                prewarmingJobsInFlight[loaderUrl] = deferred
+            }
+    }
+
     private suspend fun resolveLoaderToDirectStreamIfNeeded(
         task: DownloadTaskEntity
     ): String {
@@ -661,11 +696,35 @@ class DownloadQueueManager(
             return rawUrl
         }
 
+        // 1. Check if pre-warmed direct CDN URL is already ready in memory!
+        prewarmedLoaderUrlCache[rawUrl]?.let { cachedDirect ->
+            if (cachedDirect.startsWith("http")) {
+                return cachedDirect
+            }
+        }
+
+        // 2. If a background pre-warm job is currently in-flight for this exact URL, await it instead of starting a duplicate transcode!
+        prewarmingJobsInFlight[rawUrl]?.let { inFlight ->
+            val awaited = runCatching { inFlight.await() }.getOrNull()
+            if (!awaited.isNullOrBlank() && awaited.startsWith("http")) {
+                return awaited
+            }
+        }
+
+        val resolved = resolveLoaderToUrlInternal(rawUrl, task)
+            ?: throw IOException("Timed out waiting for cloud stream container preparation")
+        prewarmedLoaderUrlCache[rawUrl] = resolved
+        return resolved
+    }
+
+    private suspend fun resolveLoaderToUrlInternal(
+        rawUrl: String,
+        task: DownloadTaskEntity?
+    ): String? {
         val ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         var jobId = ""
         var progressUrl = ""
 
-        // Retry job initialization up to 3 times if transient network hiccup occurs
         var lastInitError: Exception? = null
         for (attempt in 1..3) {
             try {
@@ -687,7 +746,6 @@ class DownloadQueueManager(
                         throw IOException(json.optString("message").ifBlank { "Unable to initialize cloud stream job" })
                     }
                     jobId = json.optString("id").trim()
-                    // Only use download_url if immediately present; NEVER use json.optString("url") because that echoes the input YouTube watch URL!
                     val direct = if (!json.isNull("download_url")) {
                         json.optString("download_url").takeIf {
                             it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it)
@@ -708,23 +766,27 @@ class DownloadQueueManager(
                 if (jobId.isNotBlank()) break
             } catch (e: Exception) {
                 lastInitError = e
-                kotlinx.coroutines.delay(500L)
+                kotlinx.coroutines.delay(350L)
             }
         }
 
         if (jobId.isBlank()) {
-            throw lastInitError ?: IOException("Cloud stream job ID was empty")
+            if (task != null) throw lastInitError ?: IOException("Cloud stream job ID was empty")
+            return null
         }
 
         val fallbackProgressUrl = "https://p.savenow.to/api/progress?id=$jobId"
 
-        for (pollStep in 1..75) {
-            if (pausedFlags[task.jobId] == true) {
+        for (pollStep in 1..85) {
+            if (task != null && pausedFlags[task.jobId] == true) {
                 throw CancellationException("Paused by user")
             }
-            val pollDelayMs = if (pollStep <= 6) 550L else 850L
+            val pollDelayMs = when {
+                pollStep <= 8 -> 380L
+                pollStep <= 20 -> 520L
+                else -> 750L
+            }
             kotlinx.coroutines.delay(pollDelayMs)
-            // Always poll the regional worker progressUrl returned by the initializer, falling back to p.savenow.to only every 5th step
             val activePollUrl = if (pollStep % 5 == 0) fallbackProgressUrl else progressUrl
             val pollReq = Request.Builder()
                 .url(activePollUrl)
@@ -761,25 +823,27 @@ class DownloadQueueManager(
                             if (successCode == 0 && textStatus.equals("Failed", ignoreCase = true)) {
                                 throw IOException(pJson.optString("message").ifBlank { "Stream transcode failed" })
                             }
-                            val rawProg = pJson.optInt("progress", 50).coerceIn(10, 950)
-                            val prepPct = (rawProg / 32).coerceIn(2, 30)
-                            dao.upsertDownload(
-                                task.copy(
-                                    state = DownloadJobState.PREPARING.name,
-                                    progressPercent = prepPct,
-                                    updatedAt = System.currentTimeMillis()
+                            if (task != null) {
+                                val rawProg = pJson.optInt("progress", 50).coerceIn(10, 950)
+                                val prepPct = (rawProg / 32).coerceIn(2, 30)
+                                dao.upsertDownload(
+                                    task.copy(
+                                        state = DownloadJobState.PREPARING.name,
+                                        progressPercent = prepPct,
+                                        updatedAt = System.currentTimeMillis()
+                                    )
                                 )
-                            )
+                            }
                         }
                     }
                 }
             }.onFailure { err ->
                 if (err is IOException && err.message?.contains("failed", ignoreCase = true) == true) {
-                    throw err
+                    if (task != null) throw err else return null
                 }
             }
         }
-        throw IOException("Timed out waiting for cloud stream container preparation")
+        return null
     }
 
     private suspend fun executeRealHttpStreamDownload(
@@ -878,10 +942,12 @@ class DownloadQueueManager(
             }
 
             val isGoogleVideoStream = targetUrl.contains("googlevideo.com", ignoreCase = true)
-            val chunkThresholdBytes = 1024L * 1024L // 1 MB threshold for parallel multi-chunk unthrottled googlevideo transfers
+            val acceptRangesHeader = resp.header("Accept-Ranges")?.lowercase().orEmpty()
+            val supportsByteRanges = isGoogleVideoStream || acceptRangesHeader.contains("bytes") || resp.code == 206
+            val chunkThresholdBytes = 1024L * 1024L // 1 MB threshold for 8-thread parallel chunk acceleration
 
-            if (isGoogleVideoStream && totalExpected > chunkThresholdBytes) {
-                // Close initial response and stream in parallel 1.5MB byte ranges to bypass googlevideo single-connection bandwidth throttling
+            if (supportsByteRanges && totalExpected > chunkThresholdBytes) {
+                // Close initial response and stream in 8 concurrent byte-range chunks for up to 8x faster download speed!
                 resp.close()
                 downloadGoogleVideoInFastChunks(
                     targetUrl = targetUrl,
@@ -919,7 +985,6 @@ class DownloadQueueManager(
                                 .roundToInt()
                                 .coerceIn(1, 99)
                         } else {
-                            // Smooth indeterminate-to-determinate progress when server omits Content-Length
                             val pseudoMb = transferred.toDouble() / (2.5 * 1024 * 1024)
                             (pseudoMb * 85.0).roundToInt().coerceIn(5, 95)
                         }
@@ -948,8 +1013,9 @@ class DownloadQueueManager(
     }
 
     /**
-     * Streams YouTube `googlevideo.com` media using 4 concurrent byte-range workers writing directly
-     * into a pre-sized RandomAccessFile so downloads complete up to 4x faster without CDN throttling.
+     * Streams media using 8 concurrent byte-range workers writing directly into a pre-sized RandomAccessFile
+     * so YouTube (`googlevideo.com`), Cloud CDN (`pacific-cdn` / `savenow.to`), Facebook, Instagram, X, and Reddit
+     * downloads complete up to 8x faster without single-connection CDN bandwidth throttling.
      */
     private suspend fun downloadGoogleVideoInFastChunks(
         targetUrl: String,
@@ -960,7 +1026,7 @@ class DownloadQueueManager(
         task: DownloadTaskEntity,
         destinationFile: File
     ) = kotlinx.coroutines.coroutineScope {
-        val chunkSize = 1536L * 1024L // 1.5 MB per chunk
+        val chunkSize = 1024L * 1024L // 1 MB per parallel chunk for rapid concurrency saturation
         val startOffset = if (appendMode) startingBytes else 0L
         val ranges = mutableListOf<LongRange>()
         var cursor = startOffset
@@ -979,7 +1045,7 @@ class DownloadQueueManager(
         val atomicTransferred = java.util.concurrent.atomic.AtomicLong(startOffset)
         val lastReportTime = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val bytesAtLastReport = java.util.concurrent.atomic.AtomicLong(startOffset)
-        val chunkSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 4)
+        val chunkSemaphore = kotlinx.coroutines.sync.Semaphore(permits = 8)
 
         val jobs = ranges.map { range ->
             launch(Dispatchers.IO) {
@@ -999,7 +1065,7 @@ class DownloadQueueManager(
                             ?: throw IOException("Empty chunk body from stream server")
                         java.io.RandomAccessFile(destinationFile, "rw").use { chunkRaf ->
                             chunkRaf.seek(range.first)
-                            val buffer = ByteArray(128 * 1024)
+                            val buffer = ByteArray(256 * 1024)
                             var read: Int
                             while (chunkIn.read(buffer).also { read = it } != -1) {
                                 if (pausedFlags[task.jobId] == true) return@launch
@@ -1009,7 +1075,7 @@ class DownloadQueueManager(
                                 val now = System.currentTimeMillis()
                                 val prevReport = lastReportTime.get()
                                 val elapsedMs = now - prevReport
-                                if (elapsedMs >= 150 && lastReportTime.compareAndSet(prevReport, now)) {
+                                if (elapsedMs >= 140 && lastReportTime.compareAndSet(prevReport, now)) {
                                     val prevBytes = bytesAtLastReport.getAndSet(currentTotal)
                                     val deltaBytes = max(currentTotal - prevBytes, 0L)
                                     val speed = (deltaBytes * 1000L) / max(elapsedMs, 1L)

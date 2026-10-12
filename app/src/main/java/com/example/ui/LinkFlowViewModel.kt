@@ -52,7 +52,7 @@ data class StorageMetrics(
 )
 
 data class LinkFlowUiState(
-    val showSplash: Boolean = false,
+    val showSplash: Boolean = true,
     val currentTab: PrimaryTab = PrimaryTab.HOME,
     val urlInput: String = "",
     val quickFormatSelection: MediaFormat = MediaFormat.MP4,
@@ -286,6 +286,14 @@ class LinkFlowViewModel(
                     val result = outcome.result
                     val preferredFmt = _uiState.value.quickFormatSelection
                     val defaultOption = chooseDefaultOption(result, preferredFmt)
+
+                    // Pre-warm top cloud transcode streams in the background so downloading starts immediately!
+                    val prewarmCandidates = buildList {
+                        defaultOption?.downloadUrl?.let { add(it) }
+                        result.videoOptions.firstOrNull()?.downloadUrl?.let { add(it) }
+                        result.audioOptions.firstOrNull()?.downloadUrl?.let { add(it) }
+                    }
+                    queueManager.prewarmCloudStreams(prewarmCandidates)
 
                     val bestLabel = defaultOption?.label ?: "Metadata Preview"
                     val estBytes = defaultOption?.estimatedSizeBytes ?: 0L

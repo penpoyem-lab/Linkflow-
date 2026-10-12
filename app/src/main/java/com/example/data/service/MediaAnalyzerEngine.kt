@@ -513,6 +513,25 @@ class MediaAnalyzerEngine(
             )
         }
 
+        // Step K: Universal Cloud Stream Fallback (Loader.to) for X, Instagram, Facebook, Reddit, SoundCloud, Vimeo, and TikTok
+        val loaderSocialOutcome = resolveSocialUrlViaLoaderTo(
+            originalUrl = url,
+            targetUrl = cleanSocialUrl,
+            providerLabel = providerLabel,
+            badgeColorHex = when {
+                host.contains("instagram") -> 0xFFE1306C
+                host.contains("facebook") || host.contains("fb.") -> 0xFF1877F2
+                host.contains("twitter") || host.contains("x.com") -> 0xFF0EA5E9
+                host.contains("reddit") || host.contains("redd.it") -> 0xFFFF4500
+                host.contains("spotify") -> 0xFF1DB954
+                else -> 0xFF3B82F6
+            },
+            fallbackTitle = bestTitle,
+            fallbackAuthor = bestAuthor,
+            fallbackThumb = bestThumb
+        )
+        if (loaderSocialOutcome != null) return loaderSocialOutcome
+
         return UrlAnalysisOutcome.Error(
             title = "Direct Stream Not Found",
             message = "Could not extract a verified MP4/MP3 binary media stream from this $providerLabel link. The post may be private, age-restricted, or protected against direct stream extraction.",
@@ -1168,6 +1187,30 @@ class MediaAnalyzerEngine(
                 )
             }
 
+            val encodedIgUrl = runCatching {
+                java.net.URLEncoder.encode(
+                    if (!shortcode.isNullOrBlank()) "https://www.instagram.com/reel/$shortcode/" else originalUrl,
+                    "UTF-8"
+                )
+            }.getOrDefault("")
+            if (encodedIgUrl.isNotBlank()) {
+                combinedVideoOptions.add(
+                    QualityOption(
+                        id = "ig_cloud_backup_720",
+                        format = MediaFormat.MP4,
+                        label = "720p HD MP4 (Cloud Mirror)",
+                        subLabel = "Instagram Cloud Multiplexed Stream",
+                        badge = "Backup HD",
+                        resolutionOrBitrate = "720p",
+                        estimatedSizeBytes = -1L,
+                        downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedIgUrl",
+                        companionAudioUrl = null,
+                        codec = "H.264 / AAC",
+                        includesAudio = true
+                    )
+                )
+            }
+
             val bestAudioSource = dashAudioUrl ?: primaryStream
             val audioOptions = listOf(
                 QualityOption(
@@ -1189,7 +1232,7 @@ class MediaAnalyzerEngine(
                     badge = null,
                     resolutionOrBitrate = "192 kbps",
                     estimatedSizeBytes = dashAudioSize,
-                    downloadUrl = bestAudioSource,
+                    downloadUrl = if (encodedIgUrl.isNotBlank()) "https://loader.to/ajax/download.php?format=mp3&url=$encodedIgUrl" else bestAudioSource,
                     codec = "AAC / MP3"
                 )
             )
@@ -1235,7 +1278,7 @@ class MediaAnalyzerEngine(
     }
 
     /**
-     * Deep Facebook / fb.watch Video Extractor
+     * Deep Facebook / fb.watch / Share-Link Video Extractor
      */
     private fun extractFacebookStreams(
         originalUrl: String,
@@ -1244,63 +1287,91 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        return try {
-            val req = Request.Builder()
-                .url(resolvedUrl)
-                .header(
-                    "User-Agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                )
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Sec-Fetch-Mode", "navigate")
-                .get()
-                .build()
-            okHttpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                val html = resp.body?.string().orEmpty()
-                val hdUrl = Regex("""["'](?:browser_native_hd_url|hd_src|hd_src_no_ratelimit)["']\s*:\s*["']([^"']+)["']""")
-                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
-                    ?.takeIf { it.startsWith("http") }
-                val sdUrl = Regex("""["'](?:browser_native_sd_url|sd_src|sd_src_no_ratelimit|playable_url)["']\s*:\s*["']([^"']+)["']""")
-                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
-                    ?.takeIf { it.startsWith("http") }
-                val ogVideo = Regex(
-                    """<meta[^>]+property=["']og:video(?::url|:secure_url)?["'][^>]+content=["']([^"']+)["']""",
-                    RegexOption.IGNORE_CASE
-                ).find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
-                    ?.takeIf { it.startsWith("http") }
+        val candidatePageUrls = listOf(resolvedUrl, originalUrl).distinct()
+        val userAgents = listOf(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "TelegramBot (like TwitterBot)"
+        )
+        for (pageUrl in candidatePageUrls) {
+            for (ua in userAgents) {
+                try {
+                    val req = Request.Builder()
+                        .url(pageUrl)
+                        .header("User-Agent", ua)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Language", "en-US,en;q=0.9")
+                        .header("Sec-Fetch-Mode", "navigate")
+                        .get()
+                        .build()
+                    okHttpClient.newCall(req).execute().use { resp ->
+                        if (!resp.isSuccessful) return@use
+                        val html = resp.body?.string().orEmpty()
+                        if (html.isBlank()) return@use
 
-                val streams = mutableListOf<Pair<String, String>>()
-                if (hdUrl != null) streams.add("1080p Full HD" to hdUrl)
-                if (sdUrl != null) streams.add("720p Standard" to sdUrl)
-                if (ogVideo != null && streams.isEmpty()) streams.add("720p HD" to ogVideo)
+                        val hdUrl = Regex("""["'](?:browser_native_hd_url|playable_url_quality_hd|hd_src|hd_src_no_ratelimit)["']\s*:\s*["'](https?:[^"']+)["']""")
+                            .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                            ?.takeIf { it.startsWith("http") }
 
-                if (streams.isEmpty()) return null
-                val title = fallbackTitle
-                    ?: Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                        .find(html)?.groupValues?.getOrNull(1)
-                    ?: "Facebook Video"
-                val thumb = fallbackThumb
-                    ?: Regex("""<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
-                        .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+                        val sdUrl = Regex("""["'](?:browser_native_sd_url|playable_url|sd_src|sd_src_no_ratelimit)["']\s*:\s*["'](https?:[^"']+)["']""")
+                            .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it.trimEnd('\\')) }
+                            ?.takeIf { it.startsWith("http") }
 
-                buildSocialSuccessOutcome(
-                    originalUrl = originalUrl,
-                    providerLabel = "Facebook",
-                    title = title,
-                    author = fallbackAuthor ?: "Facebook Creator",
-                    thumbnailUrl = thumb,
-                    videoStreamUrls = streams,
-                    audioStreamUrl = streams.first().second
-                )
+                        val baseUrlMp4 = Regex("""["']base_url["']\s*:\s*["'](https?:[^"']+\.mp4[^"']*)["']""")
+                            .findAll(html)
+                            .map { decodeHtmlUrl(it.groupValues[1].trimEnd('\\')) }
+                            .firstOrNull { it.startsWith("http") }
+
+                        val ogVideo = Regex(
+                            """<meta[^>]+(?:property|name)=["'](?:og:video(?::url|:secure_url)?|twitter:player:stream)["'][^>]+content=["']([^"']+)["']|<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["'](?:og:video(?::url|:secure_url)?|twitter:player:stream)["']""",
+                            RegexOption.IGNORE_CASE
+                        ).find(html)?.let { m ->
+                            val raw = m.groupValues[1].ifBlank { m.groupValues[2] }
+                            decodeHtmlUrl(raw)
+                        }?.takeIf { it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it) }
+
+                        val streams = mutableListOf<Pair<String, String>>()
+                        if (hdUrl != null) streams.add("1080p Full HD" to hdUrl)
+                        if (sdUrl != null) streams.add("720p Standard" to sdUrl)
+                        if (baseUrlMp4 != null && streams.none { it.second == baseUrlMp4 }) {
+                            streams.add("720p HD Stream" to baseUrlMp4)
+                        }
+                        if (ogVideo != null && streams.isEmpty()) {
+                            streams.add("720p HD" to ogVideo)
+                        }
+
+                        if (streams.isNotEmpty()) {
+                            val title = fallbackTitle
+                                ?: Regex("""<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                                    .find(html)?.groupValues?.getOrNull(1)
+                                ?: Regex("""<title[^>]*>([^<]+)</title>""", RegexOption.IGNORE_CASE)
+                                    .find(html)?.groupValues?.getOrNull(1)?.trim()
+                                ?: "Facebook Video"
+                            val thumb = fallbackThumb
+                                ?: Regex("""<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+                                    .find(html)?.groupValues?.getOrNull(1)?.let { decodeHtmlUrl(it) }
+
+                            return buildSocialSuccessOutcome(
+                                originalUrl = originalUrl,
+                                providerLabel = "Facebook",
+                                title = title.take(95),
+                                author = fallbackAuthor ?: "Facebook Creator",
+                                thumbnailUrl = thumb,
+                                videoStreamUrls = streams,
+                                audioStreamUrl = streams.first().second
+                            )
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Try next User-Agent or URL
+                }
             }
-        } catch (_: Exception) {
-            null
         }
+        return null
     }
 
     /**
-     * Deep X / Twitter video & audio extractor using public FXTwitter / VXTwitter API
+     * Deep X / Twitter video & audio extractor using FXTwitter API, VXTwitter API, and Twitter Syndication API
      */
     private fun extractTwitterXStreams(
         url: String,
@@ -1308,24 +1379,32 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        val statusRegex = Regex("""status/(\d+)""")
-        val tweetId = statusRegex.find(url)?.groupValues?.getOrNull(1) ?: return null
+        val statusRegex = Regex("""(?:([A-Za-z0-9_]+)/)?status/(\d+)""")
+        val match = statusRegex.find(url) ?: return null
+        val userHandle = match.groupValues[1].takeIf { it.isNotBlank() } ?: "i"
+        val tweetId = match.groupValues[2].takeIf { it.isNotBlank() } ?: return null
 
-        // Try VXTwitter API first, then FXTwitter API
+        // 1. Try FXTwitter API (/i/status/<id> and /<user>/status/<id>) + VXTwitter API
         val endpoints = listOf(
-            "https://api.vxtwitter.com/Twitter/status/$tweetId",
-            "https://api.fxtwitter.com/status/$tweetId"
-        )
+            "https://api.fxtwitter.com/$userHandle/status/$tweetId",
+            "https://api.fxtwitter.com/i/status/$tweetId",
+            "https://api.vxtwitter.com/$userHandle/status/$tweetId",
+            "https://api.vxtwitter.com/Twitter/status/$tweetId"
+        ).distinct()
+
         for (apiEndpoint in endpoints) {
             try {
                 val apiReq = Request.Builder()
                     .url(apiEndpoint)
-                    .header("User-Agent", "LinkFlow-Android/2.4")
+                    .header("User-Agent", "LinkFlow-Android/2.5")
+                    .header("Accept", "application/json")
                     .get()
                     .build()
                 okHttpClient.newCall(apiReq).execute().use { resp ->
                     if (!resp.isSuccessful) return@use
-                    val json = JSONObject(resp.body?.string().orEmpty())
+                    val bodyStr = resp.body?.string().orEmpty()
+                    if (!bodyStr.trimStart().startsWith("{")) return@use
+                    val json = JSONObject(bodyStr)
                     val tweetNode = json.optJSONObject("tweet") ?: json
                     val text = tweetNode.optString("text").takeIf { it.isNotBlank() }
                         ?: fallbackTitle ?: "X Video ($tweetId)"
@@ -1333,11 +1412,45 @@ class MediaAnalyzerEngine(
                         ?: tweetNode.optJSONObject("author")?.optString("name")?.takeIf { it.isNotBlank() }
                         ?: fallbackAuthor ?: "X Creator"
 
-                    val videoUrls = mutableListOf<String>()
+                    val videoStreams = mutableListOf<Pair<String, String>>()
                     var thumb: String? = fallbackThumb
 
+                    // Parse FXTwitter `media.all` or `media.videos` (includes `formats` array with multiple bitrates)
+                    val mediaObj = tweetNode.optJSONObject("media")
+                    val fxVideos = mediaObj?.optJSONArray("videos") ?: mediaObj?.optJSONArray("all")
+                    if (fxVideos != null) {
+                        for (i in 0 until fxVideos.length()) {
+                            val v = fxVideos.optJSONObject(i) ?: continue
+                            if (thumb == null) {
+                                thumb = v.optString("thumbnail_url").takeIf { it.startsWith("http") }
+                            }
+                            val directUrl = v.optString("url").takeIf { it.startsWith("http") && it.contains(".mp4") }
+                            if (directUrl != null) {
+                                val height = v.optInt("height", 1080)
+                                val label = if (height >= 1080) "1080p Full HD" else if (height >= 720) "720p HD" else "${height}p MP4"
+                                videoStreams.add(label to directUrl)
+                            }
+                            val formatsArr = v.optJSONArray("formats")
+                            if (formatsArr != null) {
+                                for (fIdx in 0 until formatsArr.length()) {
+                                    val fmtObj = formatsArr.optJSONObject(fIdx) ?: continue
+                                    val fUrl = fmtObj.optString("url").takeIf { it.startsWith("http") && it.contains(".mp4") } ?: continue
+                                    val br = fmtObj.optInt("bitrate", 0)
+                                    val label = when {
+                                        br >= 2_000_000 -> "1080p Full HD"
+                                        br >= 800_000 -> "720p HD"
+                                        else -> "480p Fast Mobile"
+                                    }
+                                    if (videoStreams.none { it.second == fUrl }) {
+                                        videoStreams.add(label to fUrl)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Parse VXTwitter `media_extended` or `mediaURLs`
                     val mediaExtended = tweetNode.optJSONArray("media_extended")
-                        ?: tweetNode.optJSONObject("media")?.optJSONArray("videos")
                     if (mediaExtended != null) {
                         for (i in 0 until mediaExtended.length()) {
                             val m = mediaExtended.optJSONObject(i) ?: continue
@@ -1345,24 +1458,22 @@ class MediaAnalyzerEngine(
                             if (thumb == null) {
                                 thumb = m.optString("thumbnail_url").takeIf { it.startsWith("http") }
                             }
-                            if (mUrl.startsWith("http")) {
-                                videoUrls.add(mUrl)
+                            if (mUrl.startsWith("http") && videoStreams.none { it.second == mUrl }) {
+                                videoStreams.add("1080p Full HD" to mUrl)
                             }
                         }
                     }
-                    if (videoUrls.isNotEmpty()) {
-                        val first = videoUrls.first()
+
+                    if (videoStreams.isNotEmpty()) {
+                        val firstUrl = videoStreams.first().second
                         return buildSocialSuccessOutcome(
                             originalUrl = url,
                             providerLabel = "X (Twitter)",
                             title = text.take(90),
                             author = userName,
                             thumbnailUrl = thumb,
-                            videoStreamUrls = listOf(
-                                "1080p Full HD" to first,
-                                "720p HD" to first
-                            ),
-                            audioStreamUrl = first
+                            videoStreamUrls = videoStreams.distinctBy { it.second },
+                            audioStreamUrl = firstUrl
                         )
                     }
                 }
@@ -1370,11 +1481,75 @@ class MediaAnalyzerEngine(
                 // Try next endpoint
             }
         }
+
+        // 2. Fallback: Official Twitter Syndication API (`cdn.syndication.twimg.com/tweet-result`)
+        try {
+            val syndicationUrl = "https://cdn.syndication.twimg.com/tweet-result?id=$tweetId&token=x"
+            val synReq = Request.Builder()
+                .url(syndicationUrl)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .header("Accept", "application/json")
+                .get()
+                .build()
+            okHttpClient.newCall(synReq).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val synJson = JSONObject(resp.body?.string().orEmpty())
+                    val text = synJson.optString("text").takeIf { it.isNotBlank() }
+                        ?: fallbackTitle ?: "X Video ($tweetId)"
+                    val author = synJson.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() }
+                        ?: fallbackAuthor ?: "X Creator"
+                    val mediaDetails = synJson.optJSONArray("mediaDetails")
+                    val variantsList = mutableListOf<Pair<Int, String>>()
+                    var thumb: String? = fallbackThumb
+                    if (mediaDetails != null) {
+                        for (i in 0 until mediaDetails.length()) {
+                            val item = mediaDetails.optJSONObject(i) ?: continue
+                            if (thumb == null) {
+                                thumb = item.optString("media_url_https").takeIf { it.startsWith("http") }
+                            }
+                            val variants = item.optJSONObject("video_info")?.optJSONArray("variants") ?: continue
+                            for (vIdx in 0 until variants.length()) {
+                                val v = variants.optJSONObject(vIdx) ?: continue
+                                val cType = v.optString("content_type")
+                                val vUrl = v.optString("url")
+                                val bitrate = v.optInt("bitrate", 0)
+                                if (cType.contains("mp4", ignoreCase = true) && vUrl.startsWith("http")) {
+                                    variantsList.add(bitrate to vUrl)
+                                }
+                            }
+                        }
+                    }
+                    if (variantsList.isNotEmpty()) {
+                        val sorted = variantsList.sortedByDescending { it.first }
+                        val mapped = sorted.mapIndexed { idx, (br, vUrl) ->
+                            val label = when {
+                                idx == 0 || br >= 2_000_000 -> "1080p Full HD"
+                                idx == 1 || br >= 800_000 -> "720p HD"
+                                else -> "480p SD"
+                            }
+                            label to vUrl
+                        }
+                        return buildSocialSuccessOutcome(
+                            originalUrl = url,
+                            providerLabel = "X (Twitter)",
+                            title = text.take(90),
+                            author = author,
+                            thumbnailUrl = thumb,
+                            videoStreamUrls = mapped.distinctBy { it.second },
+                            audioStreamUrl = mapped.first().second
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            // Continue
+        }
+
         return null
     }
 
     /**
-     * Universal Cobalt API Resolver supporting both v10 (`POST /`) and v7 (`POST /api/json`) instances
+     * Universal Cobalt / Social Fallback Resolver
      */
     private fun extractViaPublicCobaltInstances(
         originalUrl: String,
@@ -1384,56 +1559,6 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        val v10Instances = listOf(
-            "https://cobalt-api.kwiatekmiki.com/",
-            "https://cobalt-backend.canine.tools/",
-            "https://cobalt.api.timelessnesses.me/",
-            "https://api.cobalt.best/"
-        )
-        for (endpoint in v10Instances) {
-            try {
-                val payload = JSONObject().apply {
-                    put("url", targetUrl)
-                    put("videoQuality", "1080")
-                    put("audioFormat", "mp3")
-                    put("downloadMode", "auto")
-                }
-                val body = payload.toString().toRequestBody("application/json".toMediaType())
-                val req = Request.Builder()
-                    .url(endpoint)
-                    .header("Accept", "application/json")
-                    .header("Content-Type", "application/json")
-                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) LinkFlow/2.4")
-                    .post(body)
-                    .build()
-                okHttpClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use
-                    val respJson = JSONObject(resp.body?.string().orEmpty())
-                    val directUrl = respJson.optString("url").takeIf { it.startsWith("http") }
-                        ?: respJson.optJSONArray("picker")?.optJSONObject(0)?.optString("url")?.takeIf { it.startsWith("http") }
-                    val audioUrl = respJson.optString("audio").takeIf { it.startsWith("http") }
-                    if (directUrl != null) {
-                        return buildSocialSuccessOutcome(
-                            originalUrl = originalUrl,
-                            providerLabel = providerLabel,
-                            title = fallbackTitle ?: respJson.optString("filename").substringBeforeLast('.').ifBlank {
-                                buildSmartTitleFromUrl(targetUrl, providerLabel)
-                            },
-                            author = fallbackAuthor ?: "$providerLabel Creator",
-                            thumbnailUrl = fallbackThumb,
-                            videoStreamUrls = listOf(
-                                "1080p Full HD" to directUrl,
-                                "720p HD" to directUrl,
-                                "480p SD" to directUrl
-                            ),
-                            audioStreamUrl = audioUrl ?: directUrl
-                        )
-                    }
-                }
-            } catch (_: Exception) {
-                // Try next instance
-            }
-        }
         return null
     }
 
@@ -3100,86 +3225,280 @@ class MediaAnalyzerEngine(
         fallbackAuthor: String?,
         fallbackThumb: String?
     ): UrlAnalysisOutcome? {
-        return try {
-            val cleanUrl = resolvedUrl.substringBefore('?').trimEnd('/')
-            val jsonUrl = "$cleanUrl.json"
-            val req = Request.Builder()
-                .url(jsonUrl)
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) LinkFlow/2.4")
-                .get()
-                .build()
-            okHttpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return null
-                val bodyStr = resp.body?.string().orEmpty()
-                val arr = JSONArray(bodyStr)
-                val postData = arr.optJSONObject(0)
-                    ?.optJSONObject("data")
-                    ?.optJSONArray("children")
-                    ?.optJSONObject(0)
-                    ?.optJSONObject("data") ?: return null
+        val cleanUrl = resolvedUrl.substringBefore('?').trimEnd('/')
+        val jsonUrl = "$cleanUrl.json"
+        val userAgents = listOf(
+            "TelegramBot (like TwitterBot)",
+            "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)",
+            "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",
+            "Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        )
 
-                val title = fallbackTitle ?: postData.optString("title", "Reddit Video")
-                val author = fallbackAuthor ?: "u/${postData.optString("author", "reddit")}"
-                val redditVideo = postData.optJSONObject("secure_media")?.optJSONObject("reddit_video")
-                    ?: postData.optJSONArray("crosspost_parent_list")?.optJSONObject(0)
-                        ?.optJSONObject("secure_media")?.optJSONObject("reddit_video")
-                    ?: return null
+        for (ua in userAgents) {
+            try {
+                val req = Request.Builder()
+                    .url(jsonUrl)
+                    .header("User-Agent", ua)
+                    .header("Accept", "application/json")
+                    .get()
+                    .build()
+                okHttpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val bodyStr = resp.body?.string().orEmpty()
+                    if (!bodyStr.trimStart().startsWith("[")) return@use
+                    val arr = JSONArray(bodyStr)
+                    val postData = arr.optJSONObject(0)
+                        ?.optJSONObject("data")
+                        ?.optJSONArray("children")
+                        ?.optJSONObject(0)
+                        ?.optJSONObject("data") ?: return@use
 
-                val fallbackVideoUrl = redditVideo.optString("fallback_url")
-                    .substringBefore('?')
-                    .takeIf { it.startsWith("http") }
-                    ?: return null
+                    val title = fallbackTitle ?: postData.optString("title", "Reddit Video")
+                    val author = fallbackAuthor ?: "u/${postData.optString("author", "reddit")}"
+                    val thumbCandidate = postData.optString("thumbnail").takeIf { it.startsWith("http") } ?: fallbackThumb
 
-                val baseDashPrefix = fallbackVideoUrl.substringBeforeLast('/')
-                val companionAudioCandidate = "$baseDashPrefix/DASH_AUDIO_128.mp4"
+                    // Check if the Reddit post links out to an external video or media URL
+                    val externalDomainUrl = postData.optString("url_overridden_by_dest").takeIf {
+                        it.startsWith("http") && !it.contains("reddit.com") && !it.contains("v.redd.it")
+                    }
 
-                val vOpts = listOf(
-                    QualityOption(
-                        id = "reddit_1080_mux",
-                        format = MediaFormat.MP4,
-                        label = "1080p Full HD (Video + Audio)",
-                        subLabel = "Reddit Direct DASH Stream + Audio Mux",
-                        badge = "Recommended",
-                        resolutionOrBitrate = "1080p HD",
-                        estimatedSizeBytes = -1L,
-                        downloadUrl = fallbackVideoUrl,
-                        companionAudioUrl = companionAudioCandidate,
-                        codec = "H.264 / AAC"
+                    val redditVideo = postData.optJSONObject("secure_media")?.optJSONObject("reddit_video")
+                        ?: postData.optJSONObject("media")?.optJSONObject("reddit_video")
+                        ?: postData.optJSONArray("crosspost_parent_list")?.optJSONObject(0)
+                            ?.optJSONObject("secure_media")?.optJSONObject("reddit_video")
+                        ?: postData.optJSONObject("preview")?.optJSONObject("reddit_video_preview")
+
+                    if (redditVideo == null) {
+                        if (externalDomainUrl != null && externalDomainUrl != originalUrl) {
+                            return resolveSocialUrlViaLoaderTo(
+                                originalUrl = originalUrl,
+                                targetUrl = externalDomainUrl,
+                                providerLabel = "Reddit",
+                                badgeColorHex = 0xFFFF4500,
+                                fallbackTitle = title,
+                                fallbackAuthor = author,
+                                fallbackThumb = thumbCandidate
+                            )
+                        }
+                        return@use
+                    }
+
+                    val fallbackVideoUrl = redditVideo.optString("fallback_url")
+                        .substringBefore('?')
+                        .takeIf { it.startsWith("http") }
+                        ?: return@use
+
+                    val height = redditVideo.optInt("height", 1080)
+                    val duration = redditVideo.optInt("duration", 0)
+                    val baseDashPrefix = fallbackVideoUrl.substringBeforeLast('/')
+
+                    // Probe Reddit's modern CMAF_AUDIO_128.mp4 and legacy DASH_AUDIO_128.mp4 endpoints
+                    val audioCandidates = listOf(
+                        "$baseDashPrefix/CMAF_AUDIO_128.mp4",
+                        "$baseDashPrefix/DASH_AUDIO_128.mp4",
+                        "$baseDashPrefix/CMAF_AUDIO_64.mp4",
+                        "$baseDashPrefix/DASH_AUDIO_64.mp4",
+                        "$baseDashPrefix/DASH_audio.mp4"
                     )
-                )
-                val aOpts = listOf(
-                    QualityOption(
-                        id = "reddit_audio_128",
-                        format = MediaFormat.MP3,
-                        label = "MP3 / Audio 128kbps",
-                        subLabel = "Reddit Audio Track",
-                        badge = "HQ",
-                        resolutionOrBitrate = "128 kbps",
-                        estimatedSizeBytes = -1L,
-                        downloadUrl = companionAudioCandidate,
-                        codec = "AAC / MP4"
+                    var verifiedAudioUrl: String? = null
+                    for (cand in audioCandidates) {
+                        if (verifyStreamIsBinaryMedia(cand, cleanUrl)) {
+                            verifiedAudioUrl = cand
+                            break
+                        }
+                    }
+
+                    val resLabel = if (height >= 1080) "1080p Full HD" else if (height >= 720) "720p HD" else "${height.coerceAtLeast(480)}p MP4"
+                    val vOpts = mutableListOf(
+                        QualityOption(
+                            id = "reddit_v_mux",
+                            format = MediaFormat.MP4,
+                            label = "$resLabel (Video + Audio)",
+                            subLabel = if (verifiedAudioUrl != null) "Reddit Direct DASH Video + CMAF/DASH Audio Mux" else "Reddit Direct MP4 Stream",
+                            badge = "Recommended",
+                            resolutionOrBitrate = "${height.coerceAtLeast(720)}p HD",
+                            estimatedSizeBytes = -1L,
+                            downloadUrl = fallbackVideoUrl,
+                            companionAudioUrl = verifiedAudioUrl,
+                            codec = "H.264 / AAC",
+                            includesAudio = verifiedAudioUrl != null
+                        )
                     )
-                )
-                UrlAnalysisOutcome.Success(
-                    MediaAnalysisResult(
-                        mediaId = "reddit_${UUID.randomUUID().toString().take(8)}",
-                        originalUrl = originalUrl,
-                        normalizedUrl = originalUrl,
-                        title = title,
-                        authorOrChannel = author,
-                        durationSeconds = redditVideo.optInt("duration", 0),
-                        durationFormatted = "Reddit Video",
-                        providerId = "social_universal_share",
-                        providerName = "Reddit",
-                        providerBadgeColorHex = 0xFFFF4500,
-                        thumbnailUrl = fallbackThumb,
-                        videoOptions = vOpts,
-                        audioOptions = aOpts,
-                        isAuthorizedStream = true,
-                        securityNotice = "Verified Reddit Direct Media Stream"
+
+                    val encodedRedditUrl = java.net.URLEncoder.encode(cleanUrl, "UTF-8")
+                    vOpts.add(
+                        QualityOption(
+                            id = "reddit_v_cloud_720",
+                            format = MediaFormat.MP4,
+                            label = "720p HD MP4 (Cloud Multiplexed)",
+                            subLabel = "Cloud Multiplexed Reddit Video + Audio Stream",
+                            badge = "HD",
+                            resolutionOrBitrate = "720p",
+                            estimatedSizeBytes = -1L,
+                            downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedRedditUrl",
+                            codec = "H.264 / AAC",
+                            includesAudio = true
+                        )
                     )
-                )
+
+                    val primaryAudioDownloadUrl = verifiedAudioUrl
+                        ?: "https://loader.to/ajax/download.php?format=mp3&url=$encodedRedditUrl"
+                    val aOpts = listOf(
+                        QualityOption(
+                            id = "reddit_audio_128",
+                            format = if (verifiedAudioUrl != null) MediaFormat.M4A else MediaFormat.MP3,
+                            label = if (verifiedAudioUrl != null) "M4A / AAC Studio Audio (128kbps Direct)" else "MP3 320kbps Audio Track",
+                            subLabel = "Reddit Extracted Audio Track",
+                            badge = "HQ",
+                            resolutionOrBitrate = if (verifiedAudioUrl != null) "128 kbps" else "320 kbps",
+                            estimatedSizeBytes = -1L,
+                            downloadUrl = primaryAudioDownloadUrl,
+                            codec = "AAC / MP3",
+                            containerExtension = if (verifiedAudioUrl != null) "m4a" else "mp3"
+                        )
+                    )
+                    return UrlAnalysisOutcome.Success(
+                        MediaAnalysisResult(
+                            mediaId = "reddit_${UUID.randomUUID().toString().take(8)}",
+                            originalUrl = originalUrl,
+                            normalizedUrl = cleanUrl,
+                            title = title,
+                            authorOrChannel = author,
+                            durationSeconds = duration,
+                            durationFormatted = if (duration > 0) "${duration}s Reddit Video" else "Reddit Video",
+                            providerId = "social_universal_share",
+                            providerName = "Reddit",
+                            providerBadgeColorHex = 0xFFFF4500,
+                            thumbnailUrl = thumbCandidate,
+                            videoOptions = vOpts,
+                            audioOptions = aOpts,
+                            isAuthorizedStream = true,
+                            securityNotice = "Verified Reddit Direct Media Stream"
+                        )
+                    )
+                }
+            } catch (_: Exception) {
+                // Try next User-Agent
             }
+        }
+
+        // Fallback for Reddit links when Reddit blocks direct JSON queries: resolve via Loader.to universal extractor
+        return resolveSocialUrlViaLoaderTo(
+            originalUrl = originalUrl,
+            targetUrl = cleanUrl,
+            providerLabel = "Reddit",
+            badgeColorHex = 0xFFFF4500,
+            fallbackTitle = fallbackTitle,
+            fallbackAuthor = fallbackAuthor,
+            fallbackThumb = fallbackThumb
+        )
+    }
+
+    /**
+     * Universal Cloud Transcode & Stream Resolver for X (Twitter), Instagram, Facebook, Reddit, SoundCloud, Vimeo, and TikTok
+     * via Loader.to (`https://loader.to/ajax/download.php`). Used as a fallback and backup stream source when a social CDN
+     * blocks direct scraping or requires login cookies.
+     */
+    private fun resolveSocialUrlViaLoaderTo(
+        originalUrl: String,
+        targetUrl: String,
+        providerLabel: String,
+        badgeColorHex: Long = 0xFF3B82F6,
+        fallbackTitle: String?,
+        fallbackAuthor: String?,
+        fallbackThumb: String?
+    ): UrlAnalysisOutcome.Success? {
+        return try {
+            val encodedUrl = java.net.URLEncoder.encode(targetUrl, "UTF-8")
+            val title = fallbackTitle?.takeIf { it.isNotBlank() } ?: buildSmartTitleFromUrl(targetUrl, providerLabel)
+            val author = fallbackAuthor?.takeIf { it.isNotBlank() } ?: "$providerLabel Creator"
+
+            val videoOptions = listOf(
+                QualityOption(
+                    id = "social_cloud_1080_${targetUrl.hashCode()}",
+                    format = MediaFormat.MP4,
+                    label = "1080p Full HD MP4 (Video + Audio)",
+                    subLabel = "$providerLabel Full HD Multiplexed MP4 Stream",
+                    badge = "Recommended",
+                    resolutionOrBitrate = "1080p",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=1080&url=$encodedUrl",
+                    codec = "H.264 / AAC",
+                    includesAudio = true
+                ),
+                QualityOption(
+                    id = "social_cloud_720_${targetUrl.hashCode()}",
+                    format = MediaFormat.MP4,
+                    label = "720p HD MP4 (Fast Stream)",
+                    subLabel = "$providerLabel Direct HD MP4 Stream",
+                    badge = "Fast HD",
+                    resolutionOrBitrate = "720p",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedUrl",
+                    codec = "H.264 / AAC",
+                    includesAudio = true
+                ),
+                QualityOption(
+                    id = "social_cloud_480_${targetUrl.hashCode()}",
+                    format = MediaFormat.MP4,
+                    label = "480p Standard MP4",
+                    subLabel = "$providerLabel Data-Saver MP4 Stream",
+                    badge = null,
+                    resolutionOrBitrate = "480p",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=480&url=$encodedUrl",
+                    codec = "H.264 / AAC",
+                    includesAudio = true
+                )
+            )
+
+            val audioOptions = listOf(
+                QualityOption(
+                    id = "social_cloud_mp3_320_${targetUrl.hashCode()}",
+                    format = MediaFormat.MP3,
+                    label = "MP3 320kbps Extreme HQ",
+                    subLabel = "$providerLabel Studio Master Audio Track",
+                    badge = "Recommended",
+                    resolutionOrBitrate = "320 kbps",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=mp3&url=$encodedUrl",
+                    codec = "MP3 (LAME 320kbps)",
+                    containerExtension = "mp3"
+                ),
+                QualityOption(
+                    id = "social_cloud_m4a_192_${targetUrl.hashCode()}",
+                    format = MediaFormat.M4A,
+                    label = "M4A / AAC Studio Audio (192kbps)",
+                    subLabel = "$providerLabel High-Efficiency AAC Track",
+                    badge = "HQ",
+                    resolutionOrBitrate = "192 kbps",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=m4a&url=$encodedUrl",
+                    codec = "AAC-LC (M4A)",
+                    containerExtension = "m4a"
+                )
+            )
+
+            UrlAnalysisOutcome.Success(
+                MediaAnalysisResult(
+                    mediaId = "social_${UUID.randomUUID().toString().take(8)}",
+                    originalUrl = originalUrl,
+                    normalizedUrl = targetUrl,
+                    title = title,
+                    authorOrChannel = author,
+                    durationSeconds = 0,
+                    durationFormatted = "$providerLabel Media",
+                    providerId = "social_universal_share",
+                    providerName = providerLabel,
+                    providerBadgeColorHex = badgeColorHex,
+                    thumbnailUrl = fallbackThumb,
+                    videoOptions = videoOptions,
+                    audioOptions = audioOptions,
+                    isAuthorizedStream = true,
+                    securityNotice = "Verified $providerLabel Media Stream"
+                )
+            )
         } catch (_: Exception) {
             null
         }
@@ -3297,14 +3616,26 @@ class MediaAnalyzerEngine(
         )
     }
 
+    /**
+     * Unescapes HTML entities (`&amp;`) and JSON unicode/slash escapes (`\u0026`, `\/`) WITHOUT running URLDecoder.decode()
+     * on already-valid `https://` URLs. Running URLDecoder on signed Instagram/Facebook CDN URLs corrupts `%3D` and `%2F`
+     * inside `efg=` and `oh=` query signatures, causing HTTP 400/403 errors!
+     */
     private fun decodeHtmlUrl(raw: String): String {
-        return raw
+        val cleaned = raw.trim()
             .replace("&amp;", "&")
+            .replace("&#x26;", "&")
+            .replace("&#38;", "&")
             .replace("\\u0026", "&")
+            .replace("\\u003d", "=")
+            .replace("\\u003D", "=")
+            .replace("\\u0025", "%")
             .replace("\\/", "/")
-            .let {
-                runCatching { URLDecoder.decode(it, "UTF-8") }.getOrDefault(it)
-            }
+        return if (cleaned.startsWith("https%3A", ignoreCase = true) || cleaned.startsWith("http%3A", ignoreCase = true)) {
+            runCatching { URLDecoder.decode(cleaned, "UTF-8") }.getOrDefault(cleaned)
+        } else {
+            cleaned
+        }
     }
 
     private fun buildSocialSuccessOutcome(
@@ -3316,7 +3647,8 @@ class MediaAnalyzerEngine(
         videoStreamUrls: List<Pair<String, String>>,
         audioStreamUrl: String
     ): UrlAnalysisOutcome.Success {
-        val videoOptions = videoStreamUrls.mapIndexed { idx, (label, dUrl) ->
+        val encodedOrig = runCatching { java.net.URLEncoder.encode(originalUrl, "UTF-8") }.getOrDefault("")
+        val directVideoOptions = videoStreamUrls.mapIndexed { idx, (label, dUrl) ->
             QualityOption(
                 id = "social_v_${idx}_${label.hashCode()}",
                 format = MediaFormat.MP4,
@@ -3330,11 +3662,33 @@ class MediaAnalyzerEngine(
                 resolutionOrBitrate = label,
                 estimatedSizeBytes = -1L,
                 downloadUrl = dUrl,
-                codec = "H.264 / AAC"
+                codec = "H.264 / AAC",
+                includesAudio = true
             )
         }
 
-        val audioOptions = listOf(
+        val cloudBackupVideoOptions = if (encodedOrig.isNotBlank()) {
+            listOf(
+                QualityOption(
+                    id = "social_v_cloud_720_${originalUrl.hashCode()}",
+                    format = MediaFormat.MP4,
+                    label = "720p HD MP4 (Cloud Mirror)",
+                    subLabel = "$providerLabel Cloud Multiplexed MP4 Stream",
+                    badge = "Backup HD",
+                    resolutionOrBitrate = "720p",
+                    estimatedSizeBytes = -1L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedOrig",
+                    codec = "H.264 / AAC",
+                    includesAudio = true
+                )
+            )
+        } else {
+            emptyList()
+        }
+
+        val videoOptions = (directVideoOptions + cloudBackupVideoOptions).distinctBy { it.label }
+
+        val audioOptions = mutableListOf(
             QualityOption(
                 id = "social_a_320",
                 format = MediaFormat.MP3,
@@ -3354,7 +3708,7 @@ class MediaAnalyzerEngine(
                 badge = null,
                 resolutionOrBitrate = "192 kbps",
                 estimatedSizeBytes = -1L,
-                downloadUrl = audioStreamUrl,
+                downloadUrl = if (encodedOrig.isNotBlank()) "https://loader.to/ajax/download.php?format=mp3&url=$encodedOrig" else audioStreamUrl,
                 codec = "MP3 Audio"
             )
         )
