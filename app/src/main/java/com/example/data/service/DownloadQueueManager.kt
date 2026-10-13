@@ -278,13 +278,6 @@ class DownloadQueueManager(
                 )
                 dao.upsertDownload(task)
 
-                task = task.copy(
-                    state = DownloadJobState.DOWNLOADING.name,
-                    errorMessage = null,
-                    updatedAt = System.currentTimeMillis()
-                )
-                dao.upsertDownload(task)
-
                 var lastError: Exception? = null
                 var downloadSucceeded = false
                 var detectedBinaryFormat: String? = null
@@ -750,12 +743,22 @@ class DownloadQueueManager(
                     }
                     val json = org.json.JSONObject(bodyStr)
                     jobId = json.optString("id").trim()
+                    if (jobId.isBlank()) {
+                        val streamMatch = Regex("""v2_stream_[a-zA-Z0-9_-]+""").find(bodyStr)?.value
+                        if (!streamMatch.isNullOrBlank()) {
+                            jobId = streamMatch
+                        }
+                    }
 
-                    val direct = if (!json.isNull("download_url")) {
+                    val direct = (if (!json.isNull("download_url")) {
                         json.optString("download_url").takeIf {
                             it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it)
                         }
-                    } else null
+                    } else null) ?: (if (!json.isNull("url")) {
+                        json.optString("url").takeIf {
+                            it.startsWith("http") && !MediaStreamValidator.isLikelyWebpageLandingUrl(it)
+                        }
+                    } else null)
                     if (direct != null) {
                         return direct
                     }
@@ -804,9 +807,11 @@ class DownloadQueueManager(
                         val pBody = pollResp.body?.string().orEmpty()
                         if (pBody.trimStart().startsWith("{")) {
                             val pJson = org.json.JSONObject(pBody)
-                            val dlUrl = if (!pJson.isNull("download_url")) {
+                            val dlUrl = (if (!pJson.isNull("download_url")) {
                                 pJson.optString("download_url").takeIf { it.startsWith("http") }
-                            } else null
+                            } else null) ?: (if (!pJson.isNull("url")) {
+                                pJson.optString("url").takeIf { it.startsWith("http") }
+                            } else null)
 
                             if (dlUrl != null) {
                                 shouldReturnUrl = dlUrl
@@ -838,8 +843,9 @@ class DownloadQueueManager(
                                 } else {
                                     simulatedPrep
                                 }
+                                val currentEntity = dao.getDownloadById(task.jobId) ?: task
                                 dao.upsertDownload(
-                                    task.copy(
+                                    currentEntity.copy(
                                         state = DownloadJobState.PREPARING.name,
                                         progressPercent = prepPct,
                                         speedBytesPerSec = 0L,
@@ -974,7 +980,9 @@ class DownloadQueueManager(
 
             val isGoogleVideoStream = targetUrl.contains("googlevideo.com", ignoreCase = true)
             val acceptRangesHeader = resp.header("Accept-Ranges")?.lowercase().orEmpty()
-            val supportsByteRanges = isGoogleVideoStream || acceptRangesHeader.contains("bytes") || resp.code == 206
+            val supportsByteRanges = !isCloudTranscodeStream &&
+                contentLength > 0L &&
+                (isGoogleVideoStream || acceptRangesHeader.contains("bytes") || resp.code == 206)
             val chunkThresholdBytes = 1024L * 1024L // 1 MB threshold for parallel chunk acceleration
 
             if (supportsByteRanges && totalExpected > chunkThresholdBytes) {
@@ -1032,8 +1040,9 @@ class DownloadQueueManager(
                         val remainingBytes = if (totalExpected > transferred) totalExpected - transferred else 0L
                         val eta = if (speed > 0 && remainingBytes > 0) remainingBytes / speed else -1L
 
+                        val currentEntity = dao.getDownloadById(task.jobId) ?: task
                         dao.upsertDownload(
-                            task.copy(
+                            currentEntity.copy(
                                 state = DownloadJobState.DOWNLOADING.name,
                                 progressPercent = pct,
                                 downloadedBytes = transferred,
@@ -1049,6 +1058,20 @@ class DownloadQueueManager(
                     }
                 }
                 out.flush()
+                val finalNow = System.currentTimeMillis()
+                val currentEntity = dao.getDownloadById(task.jobId) ?: task
+                dao.upsertDownload(
+                    currentEntity.copy(
+                        state = DownloadJobState.DOWNLOADING.name,
+                        progressPercent = 99,
+                        downloadedBytes = transferred,
+                        totalBytes = maxOf(totalExpected, transferred),
+                        speedBytesPerSec = 0L,
+                        etaSeconds = 0L,
+                        localFilePath = destinationFile.absolutePath,
+                        updatedAt = finalNow
+                    )
+                )
             }
         }
     }
@@ -1104,6 +1127,11 @@ class DownloadQueueManager(
                                 rangeHeader = rangeHeader
                             ).use { chunkResp ->
                                 if (!chunkResp.isSuccessful && chunkResp.code != 206) {
+                                    if (chunkResp.code == 416) {
+                                        // Range reached EOF on server; consider this chunk satisfied
+                                        chunkSuccess = true
+                                        return@use
+                                    }
                                     throw IOException("HTTP ${chunkResp.code} during parallel chunk transfer")
                                 }
                                 val chunkIn = chunkResp.body?.byteStream()

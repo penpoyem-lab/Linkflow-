@@ -5,6 +5,7 @@ import com.example.data.service.MediaAnalyzerEngine
 import com.example.data.service.UrlAnalysisOutcome
 import com.example.util.FormatUtils
 import kotlinx.coroutines.runBlocking
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -46,7 +47,7 @@ class ExampleUnitTest {
                     .message("OK")
                     .header("Content-Type", "video/mp4")
                     .header("Content-Length", "8388608")
-                    .body(okhttp3.ResponseBody.create("", null))
+                    .body("".toResponseBody(null))
                     .build()
             }
             .build()
@@ -89,7 +90,7 @@ class ExampleUnitTest {
                     .code(200)
                     .message("OK")
                     .header("Content-Type", "text/html")
-                    .body(okhttp3.ResponseBody.create(htmlBody, null))
+                    .body(htmlBody.toResponseBody(null))
                     .build()
             }
             .build()
@@ -125,7 +126,7 @@ class ExampleUnitTest {
                     .code(200)
                     .message("OK")
                     .header("Content-Type", "text/html")
-                    .body(okhttp3.ResponseBody.create(htmlBody, null))
+                    .body(htmlBody.toResponseBody(null))
                     .build()
             }
             .build()

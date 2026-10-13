@@ -204,6 +204,8 @@ fun ActiveDownloadProgressModal(
 
                 val sizeSubtitle = when {
                     isFailedOrCancelled -> "${task.fileName} • ${task.providerName}"
+                    stateEnum == DownloadJobState.PREPARING || stateEnum == DownloadJobState.ANALYZING ->
+                        "${task.fileName} • Preparing high-speed ${task.format} stream…"
                     task.totalBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} of ${FormatUtils.formatBytes(task.totalBytes)}"
                     task.downloadedBytes > 0 -> "${task.fileName} • ${FormatUtils.formatBytes(task.downloadedBytes)} streamed"
                     else -> "${task.fileName} • Preparing ${task.format} stream…"
@@ -351,7 +353,7 @@ fun ActiveDownloadProgressModal(
                         DownloadJobState.FAILED -> task.errorMessage ?: "Failed"
                         DownloadJobState.CANCELLED -> "Cancelled"
                         DownloadJobState.PROCESSING -> "Finalizing container…"
-                        DownloadJobState.PREPARING, DownloadJobState.ANALYZING -> "Preparing ${task.format} stream…"
+                        DownloadJobState.PREPARING, DownloadJobState.ANALYZING -> "Preparing ${task.format} on high-speed CDN…"
                         else -> "Downloading..."
                     }
 

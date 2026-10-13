@@ -468,10 +468,19 @@ fun DownloadsQueueScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 120.dp, start = 24.dp, end = 24.dp),
+                                .padding(top = 40.dp, start = 20.dp, end = 20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.img_empty_downloads_art_1791571250696),
+                                contentDescription = "Empty downloads illustration",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(150.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                            )
                             Text(
                                 text = when {
                                     searchQuery.isNotBlank() -> "No matching downloads"
@@ -479,15 +488,15 @@ fun DownloadsQueueScreen(
                                     else -> "No downloads yet"
                                 },
                                 style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.SemiBold
                                 ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 textAlign = TextAlign.Center
                             )
                             Text(
                                 text = "Paste a link on the Home tab to download video or audio.",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                 textAlign = TextAlign.Center
                             )
                         }

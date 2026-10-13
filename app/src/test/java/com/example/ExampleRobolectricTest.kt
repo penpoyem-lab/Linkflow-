@@ -8,6 +8,7 @@ import com.example.data.local.LinkFlowDatabase
 import com.example.data.model.DownloadJobState
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -139,7 +140,7 @@ class ExampleRobolectricTest {
                             .code(200)
                             .message("OK")
                             .header("Content-Type", "application/json")
-                            .body(okhttp3.ResponseBody.create(null, json))
+                            .body(json.toResponseBody(null))
                             .build()
                     }
                     urlStr.contains("youtubei/v1/player") -> {
@@ -156,7 +157,7 @@ class ExampleRobolectricTest {
                                 .code(200)
                                 .message("OK")
                                 .header("Content-Type", "application/json")
-                                .body(okhttp3.ResponseBody.create(null, restrictedJson))
+                                .body(restrictedJson.toResponseBody(null))
                                 .build()
                         } else {
                             val playerJson = """
@@ -207,7 +208,7 @@ class ExampleRobolectricTest {
                                 .code(200)
                                 .message("OK")
                                 .header("Content-Type", "application/json")
-                                .body(okhttp3.ResponseBody.create(null, playerJson))
+                                .body(playerJson.toResponseBody(null))
                                 .build()
                         }
                     }
@@ -223,7 +224,7 @@ class ExampleRobolectricTest {
                             .code(200)
                             .message("OK")
                             .header("Content-Type", "text/html")
-                            .body(okhttp3.ResponseBody.create(null, spotifyHtml))
+                            .body(spotifyHtml.toResponseBody(null))
                             .build()
                     }
                     urlStr.contains("youtube.com/results?search_query=") -> {
@@ -234,7 +235,7 @@ class ExampleRobolectricTest {
                             .code(200)
                             .message("OK")
                             .header("Content-Type", "text/html")
-                            .body(okhttp3.ResponseBody.create(null, searchHtml))
+                            .body(searchHtml.toResponseBody(null))
                             .build()
                     }
                     urlStr.contains("archive.org/metadata/") ||
@@ -250,7 +251,7 @@ class ExampleRobolectricTest {
                             .protocol(okhttp3.Protocol.HTTP_1_1)
                             .code(404)
                             .message("Not Found")
-                            .body(okhttp3.ResponseBody.create(null, "{}"))
+                            .body("{}".toResponseBody(null))
                             .build()
                     }
                     else -> {
@@ -261,7 +262,7 @@ class ExampleRobolectricTest {
                             .message("OK")
                             .header("Content-Type", "video/mp4")
                             .header("Content-Length", "4194304")
-                            .body(okhttp3.ResponseBody.create(null, ""))
+                            .body("".toResponseBody(null))
                             .build()
                     }
                 }
