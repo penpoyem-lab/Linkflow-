@@ -55,8 +55,9 @@ class DownloadQueueManager(
             maxRequestsPerHost = 16
         })
         .connectionPool(okhttp3.ConnectionPool(16, 5, TimeUnit.MINUTES))
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(35, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(180, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .addNetworkInterceptor { chain ->
@@ -207,16 +208,39 @@ class DownloadQueueManager(
                 runCatching { File(path).delete() }
                 runCatching { File("$path.part").delete() }
             }
-            // Clear stale/expired targetDownloadUrl if it differs from sourceUrl so buildOrderedCandidateStreamUrls
-            // places fresh re-resolved CDN URLs first instead of repeating the expired/forbidden URL!
-            val resetTargetUrl = if (current.sourceUrl.isNotBlank() && current.sourceUrl != current.targetDownloadUrl) {
-                ""
-            } else {
-                current.targetDownloadUrl
+            // Preserve the user's selected format and reconstruct a clean cloud transcode endpoint if prior direct CDN URL expired
+            val ytId = ProviderDetector.extractYouTubeVideoId(current.sourceUrl)
+                ?: ProviderDetector.extractYouTubeVideoId(current.targetDownloadUrl)
+            val cleanTargetUrl = when {
+                current.targetDownloadUrl.contains("loader.to/ajax/download.php", ignoreCase = true) ->
+                    current.targetDownloadUrl
+                !ytId.isNullOrBlank() -> {
+                    val cleanWatch = "https://www.youtube.com/watch?v=$ytId"
+                    val enc = java.net.URLEncoder.encode(cleanWatch, "UTF-8")
+                    val isAudio = !runCatching { MediaFormat.valueOf(current.format.uppercase()).isVideo }.getOrDefault(false)
+                    if (isAudio) {
+                        val fmt = when (current.format.uppercase()) {
+                            "FLAC" -> "flac"
+                            "WAV" -> "wav"
+                            "M4A" -> "m4a"
+                            else -> "mp3"
+                        }
+                        "https://loader.to/ajax/download.php?format=$fmt&url=$enc"
+                    } else {
+                        val res = Regex("""(\d+)p""").find(current.qualityLabel)?.groupValues?.getOrNull(1)
+                            ?: Regex("""(\d+)p""").find(current.resolutionOrBitrate)?.groupValues?.getOrNull(1)
+                            ?: "720"
+                        val validRes = if (res in listOf("1080", "720", "480", "360")) res else "720"
+                        "https://loader.to/ajax/download.php?format=$validRes&url=$enc"
+                    }
+                }
+                current.targetDownloadUrl.isNotBlank() -> current.targetDownloadUrl
+                else -> current.sourceUrl
             }
+
             dao.upsertDownload(
                 current.copy(
-                    targetDownloadUrl = resetTargetUrl,
+                    targetDownloadUrl = cleanTargetUrl,
                     state = DownloadJobState.QUEUED.name,
                     progressPercent = 0,
                     downloadedBytes = 0L,
@@ -403,10 +427,29 @@ class DownloadQueueManager(
                     }
                 }
 
-                // If this high-resolution video option (e.g. Reddit DASH) has a separate companion audio track,
-                // download the companion audio stream and hardware-mux Video + Audio into a single playable MP4 container!
-                val companionAudio = task.companionAudioUrl
-                if (!companionAudio.isNullOrBlank() &&
+                // If this video container has a separate companion audio track (e.g. YouTube adaptive stream or Reddit DASH),
+                // check if the downloaded file already has an audio track (e.g. progressive MP4 with built-in audio or cloud-multiplexed stream).
+                val isCloudMultiplexed = task.targetDownloadUrl.contains("savenow.to", ignoreCase = true) ||
+                    task.targetDownloadUrl.contains("loader.to", ignoreCase = true) ||
+                    task.targetDownloadUrl.contains("pacific-cdn", ignoreCase = true)
+
+                val companionAudio = if (isCloudMultiplexed) null else (task.companionAudioUrl ?: refreshedCompanionAudio)
+                val destinationAlreadyHasAudio = if (isCloudMultiplexed) true else runCatching {
+                    val extractor = MediaExtractor().apply { setDataSource(destinationFile.absolutePath) }
+                    var foundAudio = false
+                    for (i in 0 until extractor.trackCount) {
+                        val mime = extractor.getTrackFormat(i).getString(AndroidMediaFormat.KEY_MIME).orEmpty()
+                        if (mime.startsWith("audio/")) {
+                            foundAudio = true
+                            break
+                        }
+                    }
+                    extractor.release()
+                    foundAudio
+                }.getOrDefault(false)
+
+                if (!destinationAlreadyHasAudio &&
+                    !companionAudio.isNullOrBlank() &&
                     companionAudio.startsWith("http") &&
                     companionAudio != task.targetDownloadUrl &&
                     task.format.equals(MediaFormat.MP4.name, ignoreCase = true)
@@ -438,12 +481,14 @@ class DownloadQueueManager(
                                 outputFile = tempMuxedFile
                             )
                             if (muxOk && tempMuxedFile.exists() && tempMuxedFile.length() > 1024L) {
-                                destinationFile.delete()
+                                val backupFile = File(getDownloadsDirectory(), "${task.jobId}_pre_mux_backup.mp4")
+                                destinationFile.renameTo(backupFile)
                                 val moved = tempMuxedFile.renameTo(destinationFile)
                                 if (!moved) {
                                     tempMuxedFile.copyTo(destinationFile, overwrite = true)
                                     tempMuxedFile.delete()
                                 }
+                                runCatching { backupFile.delete() }
                             }
                         }
                     } catch (_: Exception) {
@@ -533,8 +578,9 @@ class DownloadQueueManager(
         val requestedFormatEnum = runCatching { MediaFormat.valueOf(task.format.uppercase()) }.getOrDefault(MediaFormat.MP4)
         val isAudioFormat = !requestedFormatEnum.isVideo
 
-        // Re-analyze sourceUrl in case the social platform's signed CDN URL expired, was cleared on Retry, or needs fresh extraction
-        if (task.sourceUrl.startsWith("http") && (task.sourceUrl != task.targetDownloadUrl || !hasValidTarget)) {
+        // Only re-analyze sourceUrl if task does not yet have a valid target stream URL!
+        // When task.targetDownloadUrl is already valid, re-running analyzeUrl added 25-30s of unnecessary delay and injected failing adaptive streams.
+        if (!hasValidTarget && task.sourceUrl.startsWith("http")) {
             runCatching {
                 when (val outcome = analyzerEngine.analyzeUrl(task.sourceUrl)) {
                     is UrlAnalysisOutcome.Success -> {
@@ -557,11 +603,7 @@ class DownloadQueueManager(
                             exactFormatAndLabelMatch.downloadUrl.startsWith("http") &&
                             !MediaStreamValidator.isLikelyWebpageLandingUrl(exactFormatAndLabelMatch.downloadUrl)
                         ) {
-                            if (!hasValidTarget) {
-                                candidates.add(0, exactFormatAndLabelMatch.downloadUrl)
-                            } else {
-                                candidates.add(exactFormatAndLabelMatch.downloadUrl)
-                            }
+                            candidates.add(exactFormatAndLabelMatch.downloadUrl)
                             if (freshCompanionAudio == null && !exactFormatAndLabelMatch.companionAudioUrl.isNullOrBlank()) {
                                 freshCompanionAudio = exactFormatAndLabelMatch.companionAudioUrl
                             }
@@ -630,10 +672,20 @@ class DownloadQueueManager(
                 if (validRes != "720") {
                     candidates.add("https://loader.to/ajax/download.php?format=720&url=$encWatch")
                 }
+                if (validRes != "480") {
+                    candidates.add("https://loader.to/ajax/download.php?format=480&url=$encWatch")
+                }
             }
         }
 
-        return candidates.distinct() to freshCompanionAudio
+        // Cloud transcode streams and YouTube streams are already complete multiplexed files and do NOT require companion audio muxing
+        val isYouTubeOrCloud = task.providerName.equals("YouTube", ignoreCase = true) ||
+            task.sourceUrl.contains("youtube.com", ignoreCase = true) ||
+            task.sourceUrl.contains("youtu.be", ignoreCase = true) ||
+            candidates.any { it.contains("loader.to", ignoreCase = true) || it.contains("savenow.to", ignoreCase = true) }
+        val resolvedCompanion = if (isYouTubeOrCloud) null else freshCompanionAudio
+
+        return candidates.distinct() to resolvedCompanion
     }
 
     private fun isHtmlErrorPageFile(file: File): Boolean {
@@ -749,6 +801,15 @@ class DownloadQueueManager(
                             jobId = streamMatch
                         }
                     }
+                    if (jobId.isBlank()) {
+                        val contentB64 = json.optString("content")
+                        if (contentB64.isNotBlank()) {
+                            runCatching {
+                                val decoded = String(android.util.Base64.decode(contentB64, android.util.Base64.DEFAULT), Charsets.UTF_8)
+                                Regex("""v2_stream_[a-zA-Z0-9_-]+""").find(decoded)?.value?.let { jobId = it }
+                            }
+                        }
+                    }
 
                     val direct = (if (!json.isNull("download_url")) {
                         json.optString("download_url").takeIf {
@@ -760,6 +821,15 @@ class DownloadQueueManager(
                         }
                     } else null)
                     if (direct != null) {
+                        if (task != null) {
+                            val currentEntity = dao.getDownloadById(task.jobId) ?: task
+                            dao.upsertDownload(
+                                currentEntity.copy(
+                                    targetDownloadUrl = direct,
+                                    updatedAt = System.currentTimeMillis()
+                                )
+                            )
+                        }
                         return direct
                     }
 
@@ -787,7 +857,7 @@ class DownloadQueueManager(
             if (task != null && pausedFlags[task.jobId] == true) {
                 throw CancellationException("Paused by user")
             }
-            val pollDelayMs = if (pollStep <= 6) 500L else 800L
+            val pollDelayMs = if (pollStep <= 6) 600L else 1000L
             kotlinx.coroutines.delay(pollDelayMs)
 
             val pollReq = Request.Builder()
@@ -837,9 +907,9 @@ class DownloadQueueManager(
 
                             if (task != null) {
                                 val rawProg = pJson.optInt("progress", 0)
-                                val simulatedPrep = minOf(6 + pollStep * 2, 42)
+                                val simulatedPrep = minOf(12 + pollStep * 2, 46)
                                 val prepPct = if (rawProg in 10..990) {
-                                    ((rawProg / 25) + 5).coerceIn(simulatedPrep, 44)
+                                    ((rawProg / 25) + 10).coerceIn(simulatedPrep, 48)
                                 } else {
                                     simulatedPrep
                                 }
@@ -859,6 +929,15 @@ class DownloadQueueManager(
             }
 
             if (shouldReturnUrl != null) {
+                if (task != null) {
+                    val currentEntity = dao.getDownloadById(task.jobId) ?: task
+                    dao.upsertDownload(
+                        currentEntity.copy(
+                            targetDownloadUrl = shouldReturnUrl,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
                 return shouldReturnUrl
             }
             if (encounteredFatalError != null) {

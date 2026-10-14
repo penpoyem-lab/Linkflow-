@@ -475,7 +475,7 @@ object DownloadErrorHandler {
                     category = DownloadErrorCategory.NETWORK_IO_TIMEOUT,
                     userFriendlyMessage = "Network connection interrupted while streaming from $providerName.",
                     recoveryActionHint = "Check your internet connection and tap Retry Job.",
-                    shouldReResolveSourceUrl = false,
+                    shouldReResolveSourceUrl = true,
                     isRetryable = true
                 )
             }

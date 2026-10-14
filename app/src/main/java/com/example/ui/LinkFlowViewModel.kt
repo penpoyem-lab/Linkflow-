@@ -287,11 +287,9 @@ class LinkFlowViewModel(
                     val preferredFmt = _uiState.value.quickFormatSelection
                     val defaultOption = chooseDefaultOption(result, preferredFmt)
 
-                    // Pre-warm top cloud transcode streams in the background so downloading starts immediately!
+                    // Pre-warm the chosen stream in the background so downloading starts with 0s wait!
                     val prewarmCandidates = buildList {
                         defaultOption?.downloadUrl?.let { add(it) }
-                        result.videoOptions.firstOrNull()?.downloadUrl?.let { add(it) }
-                        result.audioOptions.firstOrNull()?.downloadUrl?.let { add(it) }
                     }
                     queueManager.prewarmCloudStreams(prewarmCandidates)
 
@@ -350,18 +348,22 @@ class LinkFlowViewModel(
         preferredFormat: MediaFormat
     ): QualityOption? {
         return if (!preferredFormat.isVideo) {
-            // Prioritize direct instant streams over slow loader.to cloud transcode!
             val matching = analysis.audioOptions.filter { it.format == preferredFormat }
-            matching.firstOrNull { !it.downloadUrl.contains("loader.to") }
+            matching.firstOrNull { !it.downloadUrl.contains("loader.to", ignoreCase = true) }
                 ?: matching.firstOrNull()
-                ?: analysis.audioOptions.firstOrNull { !it.downloadUrl.contains("loader.to") }
+                ?: analysis.audioOptions.firstOrNull { !it.downloadUrl.contains("loader.to", ignoreCase = true) }
                 ?: analysis.audioOptions.firstOrNull()
                 ?: analysis.videoOptions.firstOrNull()
         } else {
             val matching = analysis.videoOptions.filter { it.format == preferredFormat }
-            matching.firstOrNull { !it.downloadUrl.contains("loader.to") }
+            val directMatching = matching.filter { !it.downloadUrl.contains("loader.to", ignoreCase = true) }
+            val pool = if (directMatching.isNotEmpty()) directMatching else matching
+            pool.firstOrNull { it.label.contains("720") }
+                ?: pool.firstOrNull { it.label.contains("1080") }
+                ?: pool.firstOrNull { it.label.contains("480") }
+                ?: pool.firstOrNull { it.label.contains("360") }
+                ?: pool.firstOrNull()
                 ?: matching.firstOrNull()
-                ?: analysis.videoOptions.firstOrNull { !it.downloadUrl.contains("loader.to") }
                 ?: analysis.videoOptions.firstOrNull()
                 ?: analysis.audioOptions.firstOrNull()
         }

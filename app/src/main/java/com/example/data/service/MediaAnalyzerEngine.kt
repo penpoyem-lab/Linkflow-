@@ -1811,12 +1811,19 @@ class MediaAnalyzerEngine(
         val cleanWatchUrl = "https://www.youtube.com/watch?v=$videoId"
         val encodedWatchUrl = java.net.URLEncoder.encode(cleanWatchUrl, "UTF-8")
 
-        // Pipeline A: Native YouTube Player JSON Stream Inspection
-        for (profile in profiles) {
-            val hasHdVideo = videoOptions.any { it.resolutionOrBitrate.contains("1080") || it.resolutionOrBitrate.contains("720") }
-            val hasDirectAudio = audioOptions.any { !it.downloadUrl.contains("loader.to") }
-            if (hasHdVideo && hasDirectAudio) break
+        // Pipeline A: Fast Native YouTube Player Stream Inspection (fails fast on blocked datacenter IPs)
+        val primaryProfile = profiles.firstOrNull() ?: return resolveViaLoaderToStreamingApi(
+            originalUrl = originalUrl,
+            videoId = videoId,
+            fallbackTitle = resolvedTitle,
+            fallbackAuthor = resolvedAuthor,
+            fallbackThumb = resolvedThumb,
+            fallbackDurationSeconds = durationSec
+        )
+
+        run {
             try {
+                val profile = primaryProfile
                 val clientObj = JSONObject().apply {
                     put("clientName", profile.clientName)
                     put("clientVersion", profile.clientVersion)
@@ -2044,49 +2051,35 @@ class MediaAnalyzerEngine(
                             val itag = f.optInt("itag", i)
 
                             val badgeText = when {
-                                height == 1080 -> "Recommended"
-                                height == 720 -> "HD"
-                                else -> null
+                                height == 720 -> "Recommended"
+                                height >= 1080 -> "Full HD"
+                                height == 480 -> "Fast HD"
+                                else -> "Direct"
                             }
                             videoOptions.add(
                                 QualityOption(
                                     id = "yt_adap_${itag}_$qualityLabel",
                                     format = MediaFormat.MP4,
                                     label = "$qualityLabel MP4${if (height >= 1080) " Full HD" else if (height >= 720) " HD" else ""}",
-                                    subLabel = if (bestCompanionAudioUrl != null) "MP4 Video (H.264) + Studio AAC Audio Mux" else "Direct MP4 Video Stream",
+                                    subLabel = if (bestCompanionAudioUrl != null) "Direct High-Speed Stream • Studio AAC Audio Mux" else "Direct High-Speed MP4 Video",
                                     badge = badgeText,
                                     resolutionOrBitrate = qualityLabel,
                                     estimatedSizeBytes = totalEstimated,
                                     downloadUrl = url,
                                     companionAudioUrl = bestCompanionAudioUrl,
                                     codec = "H.264 / AAC",
-                                    includesAudio = bestCompanionAudioUrl != null
+                                    includesAudio = true
                                 )
                             )
                         }
                     }
                 }
             } catch (_: Exception) {
-                // Continue to next client profile
+                // Continue to cloud fallback
             }
         }
 
-        // Pipeline B: Public Cobalt Instances for YouTube (if InnerTube was blocked on this IP)
-        if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
-            val cobaltOutcome = extractViaPublicCobaltInstances(
-                originalUrl = originalUrl,
-                targetUrl = cleanWatchUrl,
-                providerLabel = "YouTube",
-                fallbackTitle = resolvedTitle,
-                fallbackAuthor = resolvedAuthor,
-                fallbackThumb = resolvedThumb
-            )
-            if (cobaltOutcome is UrlAnalysisOutcome.Success) {
-                return cobaltOutcome
-            }
-        }
-
-        // Pipeline C: Loader.to / SaveNow Cloud Transcode & Stream Resolver (supports MP4 1080p/720p/480p/360p & 320kbps MP3/FLAC/WAV/M4A full audio)
+        // Pipeline B: Loader.to / SaveNow Cloud Transcode & Stream Resolver (instantaneous, high-reliability)
         // Always succeeds for any valid 11-char YouTube videoId without IP-bound googlevideo 403 errors!
         if (videoOptions.isEmpty() && audioOptions.isEmpty()) {
             val loaderOutcome = resolveViaLoaderToStreamingApi(
@@ -2170,7 +2163,7 @@ class MediaAnalyzerEngine(
             QualityOption(
                 id = "yt_cloud_1080_$videoId",
                 format = MediaFormat.MP4,
-                label = "1080p Full HD MP4 (Cloud Multiplexed)",
+                label = "1080p Full HD MP4 (Video + Audio)",
                 subLabel = "Full-Length Multiplexed MP4 Stream • H.264 + AAC",
                 badge = "1080p HD",
                 resolutionOrBitrate = "1080p",
@@ -2182,12 +2175,36 @@ class MediaAnalyzerEngine(
             QualityOption(
                 id = "yt_cloud_720_$videoId",
                 format = MediaFormat.MP4,
-                label = "720p HD MP4 (Cloud Multiplexed)",
+                label = "720p HD MP4 (Video + Audio)",
                 subLabel = "Direct HD MP4 Stream • Fast Download",
                 badge = "HD",
                 resolutionOrBitrate = "720p",
                 estimatedSizeBytes = effectiveSec * 250_000L,
                 downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl",
+                codec = "H.264 / AAC",
+                includesAudio = true
+            ),
+            QualityOption(
+                id = "yt_cloud_480_$videoId",
+                format = MediaFormat.MP4,
+                label = "480p Standard MP4 (Video + Audio)",
+                subLabel = "Balanced Mobile MP4 Stream",
+                badge = null,
+                resolutionOrBitrate = "480p",
+                estimatedSizeBytes = effectiveSec * 160_000L,
+                downloadUrl = "https://loader.to/ajax/download.php?format=480&url=$encodedWatchUrl",
+                codec = "H.264 / AAC",
+                includesAudio = true
+            ),
+            QualityOption(
+                id = "yt_cloud_360_$videoId",
+                format = MediaFormat.MP4,
+                label = "360p Data Saver MP4 (Video + Audio)",
+                subLabel = "Compact MP4 Stream • Fast",
+                badge = "Fast",
+                resolutionOrBitrate = "360p",
+                estimatedSizeBytes = effectiveSec * 110_000L,
+                downloadUrl = "https://loader.to/ajax/download.php?format=360&url=$encodedWatchUrl",
                 codec = "H.264 / AAC",
                 includesAudio = true
             )
@@ -2200,21 +2217,29 @@ class MediaAnalyzerEngine(
 
         val combinedVideos = (videoOptions + cloudBackupVideos)
 
-        // Sort video options so progressive MP4 with built-in audio and 1080p/720p H.264 streams appear cleanly
+        // Prioritize DIRECT Google CDN streams (0 wait, instant high speed) above cloud transcode backups
         val deduplicatedVideos = combinedVideos
             .distinctBy { it.label }
             .sortedByDescending { opt ->
                 val resNum = Regex("""(\d+)p""").find(opt.resolutionOrBitrate)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 360
-                val directBonus = if (!opt.downloadUrl.contains("loader.to")) 2000 else 0
-                val progressiveBonus = if (opt.companionAudioUrl == null && opt.includesAudio) 1000 else 0
-                directBonus + progressiveBonus + resNum * 10
+                val isDirectStream = !opt.downloadUrl.contains("loader.to", ignoreCase = true)
+                val directBonus = if (isDirectStream) 10000 else 0
+                val preferredResBonus = when (resNum) {
+                    720 -> 500
+                    1080 -> 400
+                    480 -> 300
+                    360 -> 200
+                    else -> resNum
+                }
+                directBonus + preferredResBonus
             }
 
         // Direct streams appear FIRST, prioritizing instant direct MP3 and M4A over cloud transcode
         val deduplicatedAudios = combinedAudios
             .distinctBy { it.label }
             .sortedByDescending { opt ->
-                val directBonus = if (!opt.downloadUrl.contains("loader.to")) 2000 else 0
+                val isDirectStream = !opt.downloadUrl.contains("loader.to", ignoreCase = true)
+                val directBonus = if (isDirectStream) 10000 else 0
                 val isMp3Bonus = if (opt.format == MediaFormat.MP3) 100 else 0
                 directBonus + isMp3Bonus
             }
@@ -2321,26 +2346,26 @@ class MediaAnalyzerEngine(
 
             val videoOptions = listOf(
                 QualityOption(
-                    id = "yt_cloud_1080_$videoId",
+                    id = "yt_cloud_720_$videoId",
                     format = MediaFormat.MP4,
-                    label = "1080p Full HD MP4 (Video + Audio)",
-                    subLabel = "Full-Length Multiplexed MP4 Stream • H.264 + AAC",
+                    label = "720p HD MP4 (Video + Audio)",
+                    subLabel = "Direct HD MP4 Stream • Fast High-Speed Download",
                     badge = "Recommended",
-                    resolutionOrBitrate = "1080p",
-                    estimatedSizeBytes = effDuration * 450_000L,
-                    downloadUrl = "https://loader.to/ajax/download.php?format=1080&url=$encodedWatchUrl",
+                    resolutionOrBitrate = "720p",
+                    estimatedSizeBytes = effDuration * 250_000L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true
                 ),
                 QualityOption(
-                    id = "yt_cloud_720_$videoId",
+                    id = "yt_cloud_1080_$videoId",
                     format = MediaFormat.MP4,
-                    label = "720p HD MP4 (Video + Audio)",
-                    subLabel = "Direct HD MP4 Stream • Fast Download",
-                    badge = "HD",
-                    resolutionOrBitrate = "720p",
-                    estimatedSizeBytes = effDuration * 250_000L,
-                    downloadUrl = "https://loader.to/ajax/download.php?format=720&url=$encodedWatchUrl",
+                    label = "1080p Full HD MP4 (Video + Audio)",
+                    subLabel = "Full-Length Multiplexed MP4 Stream • H.264 + AAC",
+                    badge = "Full HD",
+                    resolutionOrBitrate = "1080p",
+                    estimatedSizeBytes = effDuration * 450_000L,
+                    downloadUrl = "https://loader.to/ajax/download.php?format=1080&url=$encodedWatchUrl",
                     codec = "H.264 / AAC",
                     includesAudio = true
                 ),
@@ -2360,7 +2385,7 @@ class MediaAnalyzerEngine(
                     id = "yt_cloud_360_$videoId",
                     format = MediaFormat.MP4,
                     label = "360p Data Saver MP4 (Video + Audio)",
-                    subLabel = "Compact MP4 Stream",
+                    subLabel = "Compact MP4 Stream • Instant Download",
                     badge = "Fast",
                     resolutionOrBitrate = "360p",
                     estimatedSizeBytes = effDuration * 110_000L,
