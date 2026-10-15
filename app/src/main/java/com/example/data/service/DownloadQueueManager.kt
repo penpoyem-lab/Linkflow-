@@ -678,12 +678,9 @@ class DownloadQueueManager(
             }
         }
 
-        // Cloud transcode streams and YouTube streams are already complete multiplexed files and do NOT require companion audio muxing
-        val isYouTubeOrCloud = task.providerName.equals("YouTube", ignoreCase = true) ||
-            task.sourceUrl.contains("youtube.com", ignoreCase = true) ||
-            task.sourceUrl.contains("youtu.be", ignoreCase = true) ||
-            candidates.any { it.contains("loader.to", ignoreCase = true) || it.contains("savenow.to", ignoreCase = true) }
-        val resolvedCompanion = if (isYouTubeOrCloud) null else freshCompanionAudio
+        // Only skip companion audio if ALL candidates are pre-multiplexed cloud transcode streams
+        val isCloudTranscodeOnly = candidates.all { it.contains("loader.to", ignoreCase = true) || it.contains("savenow.to", ignoreCase = true) }
+        val resolvedCompanion = if (isCloudTranscodeOnly) null else (task.companionAudioUrl ?: freshCompanionAudio)
 
         return candidates.distinct() to resolvedCompanion
     }
@@ -852,12 +849,12 @@ class DownloadQueueManager(
             return null
         }
 
-        // Poll the stream progress API with smart backoff up to 100 iterations (supporting up to 80s transcode time)
-        for (pollStep in 1..100) {
+        // Poll the stream progress API with fast responsive backoff (up to 35 steps, ~28s max)
+        for (pollStep in 1..35) {
             if (task != null && pausedFlags[task.jobId] == true) {
                 throw CancellationException("Paused by user")
             }
-            val pollDelayMs = if (pollStep <= 6) 600L else 1000L
+            val pollDelayMs = if (pollStep <= 4) 500L else 800L
             kotlinx.coroutines.delay(pollDelayMs)
 
             val pollReq = Request.Builder()
@@ -899,9 +896,9 @@ class DownloadQueueManager(
                             }
 
                             val successCode = pJson.optInt("success", -1)
-                            val textStatus = pJson.optString("text")
-                            if (successCode == 0 && textStatus.equals("Failed", ignoreCase = true)) {
-                                encounteredFatalError = pJson.optString("message").ifBlank { "Stream transcode failed" }
+                            val textStatus = pJson.optString("text").lowercase()
+                            if ((successCode == 0 && textStatus.contains("failed")) || textStatus.contains("error")) {
+                                encounteredFatalError = pJson.optString("message").ifBlank { "Stream transcode failed: $textStatus" }
                                 return@use
                             }
 
