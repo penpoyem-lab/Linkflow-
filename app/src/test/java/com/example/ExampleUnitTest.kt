@@ -5,6 +5,8 @@ import com.example.data.service.MediaAnalyzerEngine
 import com.example.data.service.UrlAnalysisOutcome
 import com.example.util.FormatUtils
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

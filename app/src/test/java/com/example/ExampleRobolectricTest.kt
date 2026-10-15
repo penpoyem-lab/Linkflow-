@@ -405,4 +405,47 @@ class ExampleRobolectricTest {
         validMp3.delete()
         }
     }
+
+    @Test
+    fun testRealYouTubeAnalysisInRobolectric() = runBlocking {
+        val engine = com.example.data.service.MediaAnalyzerEngine()
+        val outcome = engine.analyzeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        println("Robolectric YouTube Outcome: ${outcome::class.java.simpleName}")
+        if (outcome is com.example.data.service.UrlAnalysisOutcome.Success) {
+            println("Title: ${outcome.result.title}")
+            println("Videos count: ${outcome.result.videoOptions.size}")
+            outcome.result.videoOptions.forEach {
+                println("  vid: ${it.label} -> ${it.downloadUrl.take(60)}")
+            }
+        }
+    }
+
+    @Test
+    fun testRealYouTubeDownloadInRobolectric() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = database.linkFlowDao()
+        val engine = com.example.data.service.MediaAnalyzerEngine()
+        val queueManager = com.example.data.service.DownloadQueueManager(context, dao, engine)
+
+        val outcome = engine.analyzeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ") // Rick Astley - 212 seconds
+        println("Analysis outcome: ${outcome::class.java.simpleName}")
+        if (outcome is com.example.data.service.UrlAnalysisOutcome.Success) {
+            val option = outcome.result.videoOptions.firstOrNull { it.label.contains("720") }
+                ?: outcome.result.videoOptions.first()
+            println("Selected option: ${option.label}, url=${option.downloadUrl.take(50)}, companion=${option.companionAudioUrl?.take(50)}")
+            val jobId = queueManager.enqueueDownload(outcome.result, option)
+            
+            // Poll for 35 seconds to observe state transitions and any failure
+            for (i in 1..70) {
+                kotlinx.coroutines.delay(500)
+                val task = dao.getDownloadById(jobId)
+                println("Job status step $i: state=${task?.state}, pct=${task?.progressPercent}%, bytes=${task?.downloadedBytes}/${task?.totalBytes}, err=${task?.errorMessage}")
+                if (task?.state == com.example.data.model.DownloadJobState.COMPLETED.name ||
+                    task?.state == com.example.data.model.DownloadJobState.FAILED.name) {
+                    println("Final task outcome: state=${task.state}, localPath=${task.localFilePath}, fileExists=${task.localFilePath?.let { java.io.File(it).exists() }}, size=${task.localFilePath?.let { java.io.File(it).length() }}")
+                    break
+                }
+            }
+        }
+    }
 }
